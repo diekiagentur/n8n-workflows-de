@@ -1,21 +1,42 @@
-## Who is this for
+# Keep an EU AI Act inventory with an AI classifier and monthly reviews
 
-Compliance officers, data protection officers and IT leads who must keep an inventory of the AI systems their company uses under the EU AI Act.
+**Eingereicht bei n8n.io am 04.09.2026 (Fassung 2).**
 
-## What this workflow does
+## Verlauf
 
-Departments submit an AI system through an n8n form. A Code node normalizes the entry and runs a keyword pre-check against the Annex III high risk areas. GPT-4.1-mini then proposes a risk class - prohibited practice, high risk under Annex III, transparency obligation under Art. 50, or minimal risk - with reasoning, a counter argument and the resulting obligations. A second Code node validates that proposal: unknown classes are rejected, the keyword check overrides a classification that is too mild, and external output always adds the Art. 50 duty. Entries land in Google Sheets as proposals pending human review; prohibited, high risk or unclear cases are emailed to management.
+Fassung 1 wurde am selben Tag abgelehnt: *„It is currently too basic to meet our
+publishing criteria."* Acht fachliche Nodes in einer Kette, ein einzelner
+OpenAI-Aufruf, ein Trigger — nach n8n-Massstab ein Einsteiger-Workflow.
 
-## How to set up
+Fassung 2 (21 fachliche Nodes, zwei Trigger) setzt dort an, wo n8n Substanz erwartet:
 
-1. Create a Google Sheet named "AI inventory" with the columns used in the Google Sheets node.
-2. Replace YOUR_SHEET_ID and the example addresses in the Send Email node.
-3. Connect your OpenAI, Google Sheets and SMTP credentials, then share the form link internally.
+- **AI Agent statt Einzelaufruf** — mit Structured-Output-Parser und einem
+  Code-Tool `ai_act_reference`, das Anhang III, die verbotenen Praktiken, die
+  Geltungstermine und die Bussgeldrahmen nachschlägt. Die Rechtsgrundlage steht
+  damit im Werkzeug und nicht im Prompt, und das Modell muss sie nicht auswendig können.
+- **Deterministische Gegenprüfung** — ein Regelsatz, der die Einstufung nur nach
+  oben korrigieren darf. Sprachmodelle stufen zu niedrig ein: „sortiert Bewerbungen
+  vor" klingt harmlos und ist Anhang III, Beschäftigung.
+- **Vier Risikopfade** statt einer if-Verzweigung, jeder mit den Pflichten, die
+  tatsächlich aus dieser Klasse folgen.
+- **Monatlicher Governance-Lauf** — liest das Inventar, sammelt überfällige und
+  anstehende Wiedervorlagen sowie offene Entscheidungen und schickt eine Mail.
+  Steht nichts an, bleibt er still.
 
-## Requirements
+## Warum das Thema
 
-An OpenAI API key, a Google account with Sheets access and an SMTP mailbox.
+Seit dem 02.08.2026 gelten die Transparenzpflichten aus Art. 50 und die
+Hochrisiko-Pflichten aus Anhang III. Beide setzen voraus, dass ein Unternehmen
+weiss, welche KI-Systeme es betreibt — die Frage, an der die meisten scheitern.
 
-## How to customize
+Deutsche Fassung im Repo: [`workflows/08-dsgvo-compliance/ki-inventar-pflegen.json`](../../workflows/08-dsgvo-compliance/ki-inventar-pflegen.json)
 
-Extend the keyword list with the terms your industry uses, or swap the OpenAI node for a locally hosted model when submissions can contain personal data.
+## Aufbau
+
+Generiert von `build_v2.py` — das JSON ist von Hand nicht mehr überschaubar,
+die Wahrheit über den Workflow steht im Skript.
+
+```bash
+python3 build_v2.py
+python3 ../../scripts/validate.py workflow.json
+```
