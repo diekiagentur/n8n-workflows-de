@@ -235,18 +235,6 @@ def main():
         shutil.copy2(vorschau, BUILD / "social-preview.jpg")
     # Jekyll aus dem Weg raeumen — sonst schluckt es Dateien mit Unterstrich.
     (BUILD / ".nojekyll").write_text("", encoding="utf-8")
-    (BUILD / "robots.txt").write_text(
-        "User-agent: *\nAllow: /\n"
-        "Sitemap: https://diekiagentur.github.io/n8n-workflows-de/sitemap.xml\n",
-        encoding="utf-8",
-    )
-    (BUILD / "sitemap.xml").write_text(
-        '<?xml version="1.0" encoding="UTF-8"?>\n'
-        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
-        "  <url><loc>https://diekiagentur.github.io/n8n-workflows-de/</loc></url>\n"
-        "</urlset>\n",
-        encoding="utf-8",
-    )
     bilder = len(list((BUILD / "thumbnails").glob("*.jpg")))
     print(f"=> build/ erzeugt: {len(wfs)} Workflows, {bilder} Thumbnails")
 

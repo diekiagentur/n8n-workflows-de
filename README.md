@@ -8,6 +8,11 @@ Masse über Qualität stellen. Hier gilt das Gegenteil: Jeder Workflow ist impor
 (automatisch validiert), auf deutsche Betriebsabläufe zugeschnitten und dokumentiert.
 Wo personenbezogene Daten oder KI-Inhalte im Spiel sind, steht der rechtliche Hinweis dabei.
 
+## Katalog mit Suche
+
+Alle 25 Workflows mit Vorschaubild, Kategoriefilter und Volltextsuche:
+**[diekiagentur.github.io/n8n-workflows-de](https://diekiagentur.github.io/n8n-workflows-de/)**
+
 ## Kategorien
 
 | Ordner | Inhalt |
