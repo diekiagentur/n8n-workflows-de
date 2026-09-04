@@ -1,0 +1,162 @@
+{
+  "name": "Eingangsrechnungen aus E-Mail auslesen und ablegen",
+  "meta": {
+    "beschreibung": "Holt PDF-Rechnungen aus einem IMAP-Postfach, liest Rechnungsnummer, Datum, Betrag, USt und Lieferant per KI aus, legt sie strukturiert in Google Sheets ab und meldet Unstimmigkeiten. DSGVO-Hinweis: Bei personenbezogenen Daten in Rechnungen einen AV-Vertrag mit dem KI-Anbieter schliessen oder ein lokales Modell (Ollama) verwenden.",
+    "kategorie": "Rechnungen & Buchhaltung",
+    "schwierigkeit": "mittel",
+    "benoetigt": ["IMAP-Postfach", "OpenAI-API (oder Ollama)", "Google Sheets"],
+    "quelle": "https://die-ki-agentur.de/n8n-agentur/"
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Eingangsrechnungen automatisch erfassen\n\n**Ablauf:** IMAP-Postfach alle 15 Min pruefen → PDF-Anhaenge filtern → Text extrahieren → KI liest Rechnungsdaten → Plausibilitaetspruefung → Google Sheets.\n\n**Vor dem Start:**\n1. IMAP-Zugangsdaten hinterlegen (eigener Ordner `Rechnungen` empfohlen)\n2. Google-Sheet mit Spalten: Datum, Lieferant, Rechnungsnummer, Netto, USt, Brutto, Datei\n3. Bei personenbezogenen Daten: AV-Vertrag mit dem KI-Anbieter oder lokales Modell\n\n**Betreuung:** https://die-ki-agentur.de/n8n-agentur/",
+        "height": 420,
+        "width": 460
+      },
+      "id": "note-doku",
+      "name": "Kurzanleitung",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-140, -60]
+    },
+    {
+      "parameters": {
+        "pollTimes": {"item": [{"mode": "everyX", "value": 15, "unit": "minutes"}]},
+        "format": "resolved",
+        "options": {"customEmailConfig": "[\"UNSEEN\"]", "downloadAttachments": true}
+      },
+      "id": "trigger-imap",
+      "name": "Posteingang pruefen",
+      "type": "n8n-nodes-base.emailReadImap",
+      "typeVersion": 2,
+      "position": [380, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {"caseSensitive": false, "version": 2},
+          "conditions": [{
+            "id": "hat-pdf",
+            "leftValue": "={{ Object.keys($binary || {}).length }}",
+            "rightValue": 0,
+            "operator": {"type": "number", "operation": "gt"}
+          }],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "filter-anhang",
+      "name": "Hat PDF-Anhang?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [600, 200]
+    },
+    {
+      "parameters": {
+        "operation": "pdf",
+        "binaryPropertyName": "attachment_0",
+        "options": {}
+      },
+      "id": "pdf-text",
+      "name": "PDF-Text extrahieren",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [820, 120]
+    },
+    {
+      "parameters": {
+        "modelId": {"__rl": true, "value": "gpt-4.1-mini", "mode": "list"},
+        "messages": {"values": [
+          {"role": "system", "content": "Du liest deutsche Eingangsrechnungen aus. Antworte AUSSCHLIESSLICH mit einem JSON-Objekt, keine Erklaerung. Felder: lieferant (string), rechnungsnummer (string), rechnungsdatum (YYYY-MM-DD), netto (number), ust_satz (number), ust_betrag (number), brutto (number), waehrung (string), leistungszeitraum (string oder null). Unbekannte Werte: null. Deutsche Zahlenformate (1.234,56) in Punktnotation umrechnen."},
+          {"role": "user", "content": "={{ $json.text }}"}
+        ]},
+        "jsonOutput": true,
+        "options": {"temperature": 0}
+      },
+      "id": "ki-auslesen",
+      "name": "Rechnungsdaten auslesen",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [1040, 120]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Plausibilitaetspruefung: Netto + USt muss Brutto ergeben (1 Cent Toleranz\n// wegen kaufmaennischer Rundung). Faengt die typischen KI-Lesefehler ab,\n// bevor falsche Zahlen in der Buchhaltung landen.\nconst raus = [];\nfor (const eintrag of $input.all()) {\n  const r = eintrag.json.message?.content ?? eintrag.json;\n  const netto = Number(r.netto ?? 0);\n  const ust = Number(r.ust_betrag ?? 0);\n  const brutto = Number(r.brutto ?? 0);\n  const abweichung = Math.abs(netto + ust - brutto);\n  raus.push({\n    json: {\n      ...r,\n      betrag_plausibel: abweichung <= 0.01,\n      abweichung_eur: Number(abweichung.toFixed(2)),\n      pflichtfelder_vollstaendig: Boolean(r.lieferant && r.rechnungsnummer && r.rechnungsdatum),\n      erfasst_am: new Date().toISOString().slice(0, 10),\n    },\n  });\n}\nreturn raus;"
+      },
+      "id": "pruefen",
+      "name": "Betraege pruefen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1260, 120]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {"caseSensitive": true, "version": 2},
+          "conditions": [
+            {"id": "plausibel", "leftValue": "={{ $json.betrag_plausibel }}", "rightValue": true, "operator": {"type": "boolean", "operation": "true", "singleValue": true}},
+            {"id": "vollstaendig", "leftValue": "={{ $json.pflichtfelder_vollstaendig }}", "rightValue": true, "operator": {"type": "boolean", "operation": "true", "singleValue": true}}
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "weiche",
+      "name": "Sauber ausgelesen?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1480, 120]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {"__rl": true, "value": "HIER_SHEET_ID_EINTRAGEN", "mode": "id"},
+        "sheetName": {"__rl": true, "value": "Eingangsrechnungen", "mode": "name"},
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Erfasst am": "={{ $json.erfasst_am }}",
+            "Lieferant": "={{ $json.lieferant }}",
+            "Rechnungsnummer": "={{ $json.rechnungsnummer }}",
+            "Rechnungsdatum": "={{ $json.rechnungsdatum }}",
+            "Netto": "={{ $json.netto }}",
+            "USt": "={{ $json.ust_betrag }}",
+            "Brutto": "={{ $json.brutto }}",
+            "Waehrung": "={{ $json.waehrung }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "sheets",
+      "name": "In Buchhaltung eintragen",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1700, 20]
+    },
+    {
+      "parameters": {
+        "assignments": {"assignments": [
+          {"id": "grund", "name": "pruefgrund", "value": "={{ $json.betrag_plausibel ? 'Pflichtfelder unvollstaendig' : 'Netto + USt weicht um ' + $json.abweichung_eur + ' EUR vom Brutto ab' }}", "type": "string"},
+          {"id": "aktion", "name": "naechster_schritt", "value": "Rechnung manuell pruefen und nachtragen", "type": "string"}
+        ]},
+        "options": {}
+      },
+      "id": "manuell",
+      "name": "Zur manuellen Pruefung",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1700, 220]
+    }
+  ],
+  "connections": {
+    "Posteingang pruefen": {"main": [[{"node": "Hat PDF-Anhang?", "type": "main", "index": 0}]]},
+    "Hat PDF-Anhang?": {"main": [[{"node": "PDF-Text extrahieren", "type": "main", "index": 0}], []]},
+    "PDF-Text extrahieren": {"main": [[{"node": "Rechnungsdaten auslesen", "type": "main", "index": 0}]]},
+    "Rechnungsdaten auslesen": {"main": [[{"node": "Betraege pruefen", "type": "main", "index": 0}]]},
+    "Betraege pruefen": {"main": [[{"node": "Sauber ausgelesen?", "type": "main", "index": 0}]]},
+    "Sauber ausgelesen?": {"main": [[{"node": "In Buchhaltung eintragen", "type": "main", "index": 0}], [{"node": "Zur manuellen Pruefung", "type": "main", "index": 0}]]}
+  },
+  "settings": {"executionOrder": "v1"},
+  "pinData": {}
+}
