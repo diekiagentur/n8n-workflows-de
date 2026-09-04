@@ -1,0 +1,247 @@
+{
+  "name": "Belege vorkontieren und DATEV-CSV an den Steuerberater",
+  "meta": {
+    "beschreibung": "Holt neue Belege aus einem Google-Drive-Ordner, extrahiert den PDF-Text und laesst die KI ein SKR03-Konto, eine Kostenstelle und einen Buchungstext samt Konfidenzwert vorschlagen. Nur Vorschlaege mit einer Konfidenz ueber 0,8 und bestandener Rechenpruefung werden automatisch vorkontiert und als DATEV-tauglicher Buchungsstapel (CSV) an den Steuerberater geschickt - alles andere landet in einer Pruefliste. Lohnt sich fuer Betriebe mit 50 bis 500 Belegen im Monat, die heute jeden Beleg von Hand kontieren. DSGVO- und EU-AI-Act-Hinweis: Belege enthalten regelmaessig personenbezogene Daten, daher AV-Vertrag mit dem KI-Anbieter schliessen oder ein lokales Modell (Ollama) nutzen. Die Kontierung ist ein Vorschlag der KI und ersetzt weder die Pruefung durch den Steuerberater noch die Aufbewahrung der Originalbelege nach GoBD.",
+    "kategorie": "Rechnungen & Buchhaltung",
+    "schwierigkeit": "fortgeschritten",
+    "benoetigt": ["Google Drive", "OpenAI-API (oder Ollama)", "Google Sheets", "SMTP-Postfach"],
+    "quelle": "https://die-ki-agentur.de/n8n-agentur/"
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Belege vorkontieren (SKR03)\n\n**Ablauf:** Taeglich 6 Uhr → neue PDFs im Belegordner → Text extrahieren → KI schlaegt Konto, Kostenstelle und Konfidenz vor → Rechen- und Plausibilitaetspruefung → ab Konfidenz 0,8 automatisch vorkontiert, sonst Pruefliste → DATEV-CSV per Mail an den Steuerberater.\n\n**Vor dem Start:**\n1. Google-Drive-Ordner-ID des Belegordners eintragen (HIER_ORDNER_ID_EINTRAGEN). Statt Drive geht auch ein IMAP-Postfach: Trigger und die beiden Drive-Nodes durch `Email Read (IMAP)` ersetzen, der Rest bleibt.\n2. Google-Sheet `Pruefliste Belege` mit den Spalten: Datei, Lieferant, Belegdatum, Netto, USt, Brutto, Vorschlag Konto, Kostenstelle, Konfidenz, Pruefgrund\n3. Sammelkreditor und Standard-Kostenstelle im Code-Node `DATEV-Zeilen aufbauen` an den eigenen Kontenrahmen anpassen (Voreinstellung: 70000)\n4. Konfidenzschwelle im Code-Node `Konfidenz und Rechnung pruefen` festlegen (Voreinstellung 0,8 - in den ersten Wochen hoeher ansetzen)\n5. Empfaengeradresse des Steuerberaters eintragen\n\n**Wichtig:** Der Buchungsstapel ist ein Vorschlag. Der Steuerberater importiert ihn, prueft und bucht - die Verantwortung bleibt beim Menschen. Belege enthalten personenbezogene Daten: AV-Vertrag oder lokales Modell.\n\n**Betreuung:** https://die-ki-agentur.de/n8n-agentur/",
+        "height": 620,
+        "width": 460
+      },
+      "id": "note-doku",
+      "name": "Kurzanleitung",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-140, -60]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {"field": "days", "triggerAtHour": 6, "triggerAtMinute": 0}
+          ]
+        }
+      },
+      "id": "trigger-taeglich",
+      "name": "Taeglich um 6 Uhr",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [380, 320]
+    },
+    {
+      "parameters": {
+        "resource": "fileFolder",
+        "searchMethod": "name",
+        "queryString": "",
+        "returnAll": true,
+        "filter": {
+          "folderId": {"__rl": true, "value": "HIER_ORDNER_ID_EINTRAGEN", "mode": "id"},
+          "whatToSearch": "files",
+          "fileTypes": ["application/pdf"]
+        },
+        "options": {"fields": ["id", "name", "mimeType", "createdTime", "webViewLink"]}
+      },
+      "id": "drive-suchen",
+      "name": "Neue Belege im Ordner suchen",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [600, 320]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {"caseSensitive": false, "version": 2},
+          "conditions": [
+            {
+              "id": "ist-pdf",
+              "leftValue": "={{ $json.mimeType }}",
+              "rightValue": "application/pdf",
+              "operator": {"type": "string", "operation": "equals"}
+            },
+            {
+              "id": "nicht-verarbeitet",
+              "leftValue": "={{ $json.name }}",
+              "rightValue": "^ERLEDIGT_",
+              "operator": {"type": "string", "operation": "notRegex"}
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-pdf",
+      "name": "Nur unverarbeitete PDFs",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [820, 320]
+    },
+    {
+      "parameters": {
+        "operation": "download",
+        "fileId": {"__rl": true, "value": "={{ $json.id }}", "mode": "id"},
+        "options": {"binaryPropertyName": "beleg"}
+      },
+      "id": "drive-laden",
+      "name": "Beleg herunterladen",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [1040, 240]
+    },
+    {
+      "parameters": {
+        "operation": "pdf",
+        "binaryPropertyName": "beleg",
+        "options": {}
+      },
+      "id": "pdf-text",
+      "name": "PDF-Text extrahieren",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [1260, 240]
+    },
+    {
+      "parameters": {
+        "modelId": {"__rl": true, "value": "gpt-4.1-mini", "mode": "list"},
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "Du bist Buchhaltungsassistenz eines deutschen Handwerks- und Dienstleistungsbetriebs und kontierst Eingangsbelege nach SKR03 vor. Antworte AUSSCHLIESSLICH mit einem JSON-Objekt, ohne Erklaerung und ohne Markdown.\n\nFelder: lieferant (string), belegdatum (YYYY-MM-DD), belegnummer (string), netto (number), ust_satz (number: 19, 7 oder 0), ust_betrag (number), brutto (number), konto_skr03 (string, vierstellig), konto_bezeichnung (string), kostenstelle (string), buchungstext (string, hoechstens 60 Zeichen), konfidenz (number zwischen 0 und 1), begruendung (string, hoechstens 200 Zeichen).\n\nHaeufige SKR03-Aufwandskonten: 3400 Wareneingang 19 Prozent, 3300 Wareneingang 7 Prozent, 4210 Miete, 4240 Gas/Strom/Wasser, 4360 Versicherungen, 4380 Beitraege/Gebuehren, 4530 laufende Kfz-Betriebskosten, 4540 Kfz-Reparaturen, 4600 Werbekosten, 4650 Bewirtungskosten, 4664 Reisekosten Uebernachtung, 4910 Porto, 4920 Telefon, 4930 Buerobedarf, 4940 Zeitschriften und Fachliteratur, 4955 EDV-Kosten und Software, 4980 Betriebsbedarf, 6800 Fremdleistungen.\n\nRegeln: Deutsche Zahlenformate (1.234,56) in Punktnotation umrechnen. Unbekannte Werte auf null setzen. Die Konfidenz ehrlich schaetzen: unter 0.8, wenn Lieferant unbekannt ist, der Leistungsinhalt mehrdeutig ist, mehrere Steuersaetze auf dem Beleg stehen oder es sich um Bewirtung, Geschenke, Anlagegueter oder Auslandsleistungen handeln koennte. Lieber eine niedrige Konfidenz als ein falsches Konto."
+            },
+            {
+              "role": "user",
+              "content": "=Dateiname: {{ $('Neue Belege im Ordner suchen').item.json.name }}\n\nBelegtext:\n{{ $json.text }}"
+            }
+          ]
+        },
+        "jsonOutput": true,
+        "options": {"temperature": 0}
+      },
+      "id": "ki-kontierung",
+      "name": "Kontierung vorschlagen",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [1480, 240]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Die Konfidenz der KI allein reicht als Freigabekriterium nicht: ein Modell ist\n// auch dann zuversichtlich, wenn es sich verrechnet hat. Deshalb kommen harte\n// Pruefungen dazu, die nichts mit dem Modell zu tun haben - Kontonummer, USt-Satz\n// und die Rechnung Netto + USt = Brutto. Erst wenn alles zusammenpasst, darf\n// automatisch vorkontiert werden.\n\nconst KONFIDENZ_SCHWELLE = 0.8;\nconst ERLAUBTE_UST = [0, 7, 19];\n\nconst raus = [];\n\nfor (const eintrag of $input.all()) {\n  const v = eintrag.json.message?.content ?? eintrag.json;\n  const datei = $('Neue Belege im Ordner suchen').item.json;\n\n  const netto = Number(v.netto ?? 0);\n  const ust = Number(v.ust_betrag ?? 0);\n  const brutto = Number(v.brutto ?? 0);\n  const ustSatz = Number(v.ust_satz ?? -1);\n  const konto = String(v.konto_skr03 ?? '').trim();\n  const konfidenz = Number(v.konfidenz ?? 0);\n\n  const maengel = [];\n\n  // Kaufmaennische Rundung erlaubt einen Cent Abweichung, mehr nicht.\n  if (Math.abs(netto + ust - brutto) > 0.01) {\n    maengel.push('Netto plus USt ergibt nicht den Bruttobetrag');\n  }\n  // SKR03-Konten sind vierstellig. Alles andere ist eine Halluzination.\n  if (!/^\\d{4}$/.test(konto)) {\n    maengel.push('Kontonummer nicht vierstellig');\n  }\n  if (!ERLAUBTE_UST.includes(ustSatz)) {\n    maengel.push('Unplausibler USt-Satz: ' + v.ust_satz);\n  }\n  // Rechnerische Gegenprobe des Steuerbetrags - deckt vertauschte Netto- und\n  // Bruttowerte auf, die der Summentest allein nicht findet.\n  if (ERLAUBTE_UST.includes(ustSatz) && ustSatz > 0 && Math.abs(netto * ustSatz / 100 - ust) > 0.02) {\n    maengel.push('USt-Betrag passt nicht zum angegebenen Steuersatz');\n  }\n  if (!v.lieferant || !v.belegdatum) {\n    maengel.push('Lieferant oder Belegdatum fehlt');\n  }\n  if (brutto <= 0) {\n    maengel.push('Kein Bruttobetrag erkannt');\n  }\n  if (!(konfidenz >= KONFIDENZ_SCHWELLE)) {\n    maengel.push('Konfidenz ' + konfidenz.toFixed(2) + ' unter der Schwelle ' + KONFIDENZ_SCHWELLE);\n  }\n\n  raus.push({\n    json: {\n      datei_name: datei.name ?? '',\n      datei_link: datei.webViewLink ?? '',\n      lieferant: v.lieferant ?? null,\n      belegdatum: v.belegdatum ?? null,\n      belegnummer: v.belegnummer ?? null,\n      netto: Number(netto.toFixed(2)),\n      ust_satz: ustSatz,\n      ust_betrag: Number(ust.toFixed(2)),\n      brutto: Number(brutto.toFixed(2)),\n      konto_skr03: konto,\n      konto_bezeichnung: v.konto_bezeichnung ?? '',\n      kostenstelle: String(v.kostenstelle ?? '').trim(),\n      buchungstext: String(v.buchungstext ?? '').slice(0, 60),\n      konfidenz: Number(konfidenz.toFixed(2)),\n      begruendung: v.begruendung ?? '',\n      automatisch_kontieren: maengel.length === 0,\n      pruefgrund: maengel.join('; '),\n    },\n  });\n}\n\nreturn raus;"
+      },
+      "id": "pruefen",
+      "name": "Konfidenz und Rechnung pruefen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1700, 240]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {"caseSensitive": true, "version": 2},
+          "conditions": [
+            {
+              "id": "freigabe",
+              "leftValue": "={{ $json.automatisch_kontieren }}",
+              "rightValue": true,
+              "operator": {"type": "boolean", "operation": "true", "singleValue": true}
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-freigabe",
+      "name": "Automatisch vorkontieren?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1920, 240]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Aufbau nach DATEV-Buchungsstapel (Format EXTF): Semikolon als Trenner,\n// Betraege mit Komma, Belegdatum vierstellig als TTMM. Die Spaltennamen sind\n// exakt so gewaehlt, wie der DATEV-Import sie erwartet - wer hier umbenennt,\n// bekommt beim Steuerberater eine Fehlermeldung statt eines Stapels.\n\nconst SAMMELKREDITOR = '70000';       // Gegenkonto, an das gebucht wird\nconst STANDARD_KOSTENSTELLE = '';      // leer lassen, wenn ohne KoSt gebucht wird\nconst TRENNER = ';';\n\n// SKR03 rechnet die Vorsteuer ueber Automatikkonten ab. Steht der Steuersatz\n// nicht ohnehin im Konto, muss der BU-Schluessel mit - sonst zieht DATEV keine\n// Vorsteuer.\nconst BU_SCHLUESSEL = { 19: '9', 7: '8', 0: '' };\n\nfunction datevBetrag(zahl) {\n  return Number(zahl).toFixed(2).replace('.', ',');\n}\n\nfunction datevDatum(iso) {\n  const d = new Date(iso);\n  if (isNaN(d.getTime())) return '';\n  return String(d.getUTCDate()).padStart(2, '0') + String(d.getUTCMonth() + 1).padStart(2, '0');\n}\n\n// Semikolon und Anfuehrungszeichen in Buchungstexten wuerden den Stapel\n// zerschiessen, daher werden Textfelder gequotet und interne Quotes verdoppelt.\nfunction feld(wert) {\n  const s = String(wert ?? '');\n  return '\"' + s.replace(/\"/g, '\"\"') + '\"';\n}\n\nconst SPALTEN = [\n  'Umsatz (ohne Soll/Haben-Kz)',\n  'Soll/Haben-Kennzeichen',\n  'WKZ Umsatz',\n  'Konto',\n  'Gegenkonto (ohne BU-Schluessel)',\n  'BU-Schluessel',\n  'Belegdatum',\n  'Belegfeld 1',\n  'Buchungstext',\n  'Kost1 - Kostenstelle',\n];\n\nconst zeilen = [SPALTEN.map(feld).join(TRENNER)];\nconst uebersicht = [];\n\nfor (const eintrag of $input.all()) {\n  const b = eintrag.json;\n  zeilen.push([\n    feld(datevBetrag(b.brutto)),\n    feld('S'),\n    feld('EUR'),\n    feld(b.konto_skr03),\n    feld(SAMMELKREDITOR),\n    feld(BU_SCHLUESSEL[b.ust_satz] ?? ''),\n    feld(datevDatum(b.belegdatum)),\n    feld(String(b.belegnummer ?? '').slice(0, 36)),\n    feld(b.buchungstext),\n    feld(b.kostenstelle || STANDARD_KOSTENSTELLE),\n  ].join(TRENNER));\n\n  uebersicht.push(b.belegdatum + '  ' + String(b.lieferant).padEnd(28).slice(0, 28) + '  ' + datevBetrag(b.brutto).padStart(10) + ' EUR  auf ' + b.konto_skr03 + ' (' + b.konto_bezeichnung + ')');\n}\n\nconst csv = zeilen.join('\\r\\n') + '\\r\\n';\nconst heute = new Date().toISOString().slice(0, 10);\n\nreturn [{\n  json: {\n    dateiname: 'DATEV-Buchungsstapel-' + heute + '.csv',\n    anzahl_buchungen: zeilen.length - 1,\n    summe_brutto: datevBetrag($input.all().reduce((s, e) => s + Number(e.json.brutto || 0), 0)),\n    uebersicht: uebersicht.join('\\n'),\n    // Base64, weil der naechste Node daraus die eigentliche Datei baut.\n    csv_base64: Buffer.from(csv, 'utf8').toString('base64'),\n  },\n}];"
+      },
+      "id": "datev-bauen",
+      "name": "DATEV-Zeilen aufbauen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2140, 120]
+    },
+    {
+      "parameters": {
+        "operation": "toBinary",
+        "sourceProperty": "csv_base64",
+        "options": {
+          "fileName": "={{ $json.dateiname }}",
+          "mimeType": "text/csv"
+        }
+      },
+      "id": "csv-datei",
+      "name": "DATEV-CSV erzeugen",
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [2360, 120]
+    },
+    {
+      "parameters": {
+        "fromEmail": "buchhaltung@HIER_FIRMENDOMAIN_EINTRAGEN.de",
+        "toEmail": "HIER_STEUERBERATER_MAIL_EINTRAGEN",
+        "subject": "=Vorkontierte Belege {{ $now.toFormat('dd.MM.yyyy') }} ({{ $('DATEV-Zeilen aufbauen').item.json.anzahl_buchungen }} Buchungen)",
+        "emailFormat": "text",
+        "text": "=Guten Tag,\n\nanbei der automatisch vorkontierte Buchungsstapel als DATEV-CSV.\n\nBuchungen: {{ $('DATEV-Zeilen aufbauen').item.json.anzahl_buchungen }}\nSumme brutto: {{ $('DATEV-Zeilen aufbauen').item.json.summe_brutto }} EUR\nGegenkonto: Sammelkreditor 70000\n\nUebersicht:\n{{ $('DATEV-Zeilen aufbauen').item.json.uebersicht }}\n\nHinweis: Die Kontierung ist ein maschineller Vorschlag mit einer Mindestkonfidenz von 0,8 und geprueften Betragssummen. Belege mit unklarer Zuordnung sind nicht enthalten, sie stehen in unserer Pruefliste und kommen separat.\n\nViele Gruesse\nHIER_ABSENDERNAME_EINTRAGEN",
+        "options": {"attachments": "data"}
+      },
+      "id": "mail-steuerberater",
+      "name": "CSV an Steuerberater senden",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [2580, 120]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {"__rl": true, "value": "HIER_SHEET_ID_EINTRAGEN", "mode": "id"},
+        "sheetName": {"__rl": true, "value": "Pruefliste Belege", "mode": "name"},
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Datei": "={{ $json.datei_name }}",
+            "Lieferant": "={{ $json.lieferant }}",
+            "Belegdatum": "={{ $json.belegdatum }}",
+            "Netto": "={{ $json.netto }}",
+            "USt": "={{ $json.ust_betrag }}",
+            "Brutto": "={{ $json.brutto }}",
+            "Vorschlag Konto": "={{ $json.konto_skr03 }} {{ $json.konto_bezeichnung }}",
+            "Kostenstelle": "={{ $json.kostenstelle }}",
+            "Konfidenz": "={{ $json.konfidenz }}",
+            "Pruefgrund": "={{ $json.pruefgrund }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "sheet-pruefliste",
+      "name": "In Pruefliste eintragen",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [2140, 420]
+    }
+  ],
+  "connections": {
+    "Taeglich um 6 Uhr": {"main": [[{"node": "Neue Belege im Ordner suchen", "type": "main", "index": 0}]]},
+    "Neue Belege im Ordner suchen": {"main": [[{"node": "Nur unverarbeitete PDFs", "type": "main", "index": 0}]]},
+    "Nur unverarbeitete PDFs": {"main": [[{"node": "Beleg herunterladen", "type": "main", "index": 0}], []]},
+    "Beleg herunterladen": {"main": [[{"node": "PDF-Text extrahieren", "type": "main", "index": 0}]]},
+    "PDF-Text extrahieren": {"main": [[{"node": "Kontierung vorschlagen", "type": "main", "index": 0}]]},
+    "Kontierung vorschlagen": {"main": [[{"node": "Konfidenz und Rechnung pruefen", "type": "main", "index": 0}]]},
+    "Konfidenz und Rechnung pruefen": {"main": [[{"node": "Automatisch vorkontieren?", "type": "main", "index": 0}]]},
+    "Automatisch vorkontieren?": {"main": [[{"node": "DATEV-Zeilen aufbauen", "type": "main", "index": 0}], [{"node": "In Pruefliste eintragen", "type": "main", "index": 0}]]},
+    "DATEV-Zeilen aufbauen": {"main": [[{"node": "DATEV-CSV erzeugen", "type": "main", "index": 0}]]},
+    "DATEV-CSV erzeugen": {"main": [[{"node": "CSV an Steuerberater senden", "type": "main", "index": 0}]]}
+  },
+  "settings": {"executionOrder": "v1"},
+  "pinData": {}
+}

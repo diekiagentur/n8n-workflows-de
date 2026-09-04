@@ -1,0 +1,414 @@
+{
+  "name": "Wissens-Assistent fuer Mitarbeiterfragen (RAG mit Quellenangabe)",
+  "meta": {
+    "beschreibung": "Nimmt Mitarbeiterfragen per Webhook entgegen und beantwortet sie mit einem KI-Agenten, der ausschliesslich im eigenen Firmenwissen-Index (Vector Store) sucht und jede Aussage mit dem Dokumentnamen belegt. Findet die Suche nichts, antwortet der Workflow ehrlich 'nicht in den Unterlagen gefunden', statt eine plausible Auskunft zu erfinden. Alle Frage-Antwort-Paare landen in einem Protokoll, unbeantwortete Fragen zusaetzlich als Meldung an die Wissenspflege — so werden Luecken in der Dokumentation sichtbar. Setzt den Workflow 'firmenwissen-rag-aufbauen' voraus. EU-AI-Act-Hinweis: Die Antwort wird als KI-generiert gekennzeichnet (Art. 50); fuer die Verarbeitung der Fragen gilt ein AV-Vertrag mit dem Modellanbieter oder ein lokales Modell.",
+    "kategorie": "KI-Agenten & RAG",
+    "schwierigkeit": "fortgeschritten",
+    "benoetigt": [
+      "Qdrant (befuellter Index)",
+      "OpenAI-API (oder Ollama)",
+      "Google Sheets",
+      "SMTP-Postfach"
+    ],
+    "quelle": "https://die-ki-agentur.de/n8n-agentur/"
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Wissens-Assistent fuer Mitarbeiterfragen\n\n**Ablauf:** Webhook (Intranet-Formular, Slack-Slashcommand oder Chat-Widget) → Frage pruefen\n→ KI-Agent durchsucht den Firmenwissen-Index → Antwort mit Quellenangabe → Protokoll in Google Sheets\n→ bei fehlendem Wissen zusaetzlich Meldung an die Wissenspflege → Antwort an den Aufrufer.\n\n**Vor dem Start:**\n1. Index aufbauen mit dem Workflow \"firmenwissen-rag-aufbauen\" (gleiche Qdrant-Collection!)\n2. Qdrant-Zugangsdaten und OpenAI-Zugangsdaten waehlen\n3. Google-Sheet \"Wissensfragen\" anlegen, Spalten: zeitpunkt, abteilung, frage, antwort, quellen,\n   wissensluecke, treffer\n4. Webhook-URL im Intranet hinterlegen: HIER_WEBHOOK_URL\n   Erwarteter Body: { \"frage\": \"...\", \"abteilung\": \"...\" }\n5. Empfaengeradresse fuer Wissensluecken eintragen: HIER_EMPFAENGER_EINTRAGEN\n\n**Warum das Protokoll:** Fragen ohne Treffer sind die wertvollste Liste im Unternehmen —\nsie zeigen schwarz auf weiss, welche Dokumentation fehlt. Ohne Protokoll bleibt diese\nInformation im Chatverlauf liegen und niemand handelt danach.\n\n**Kein Halluzinieren:** Der System-Prompt zwingt den Agenten zum Format ANTWORT/QUELLEN.\nFindet die Suche nichts, sagt er das — der nachgelagerte Code-Node prueft das noch einmal\nund markiert die Antwort als Wissensluecke.\n\n**EU AI Act:** Die Antwort wird als KI-generiert gekennzeichnet (Art. 50 Transparenzpflicht).\nDer Hinweis steckt im Antwort-JSON und gehoert sichtbar in die Oberflaeche.\n\n**Betreuung:** https://die-ki-agentur.de/n8n-agentur/",
+        "height": 780,
+        "width": 520
+      },
+      "id": "note-doku",
+      "name": "Kurzanleitung",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -200,
+        40
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "wissens-assistent",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-frage",
+      "name": "Frage entgegennehmen",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        380,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "frage-da",
+              "leftValue": "={{ ($json.body?.frage || '').trim().length }}",
+              "rightValue": 5,
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-frage",
+      "name": "Frage brauchbar?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        600,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.body.frage }}",
+        "options": {
+          "systemMessage": "Du bist der interne Wissens-Assistent eines deutschen Unternehmens. Du beantwortest Fragen von Mitarbeitenden AUSSCHLIESSLICH auf Basis der Abschnitte, die dir das Werkzeug \"firmenwissen\" liefert.\n\nRegeln:\n1. Rufe fuer jede Frage zuerst das Werkzeug \"firmenwissen\" auf. Formuliere die Suchanfrage mit den Fachbegriffen aus der Frage, nicht als ganzen Satz.\n2. Nutze ausschliesslich Inhalte aus den Treffern. Ergaenze NICHTS aus deinem Allgemeinwissen, auch wenn du die Antwort zu kennen glaubst. Firmeninterne Regelungen weichen regelmaessig vom Ueblichen ab.\n3. Wenn die Treffer die Frage nicht oder nur teilweise beantworten, sage das offen. Eine unvollstaendige, ehrliche Antwort ist brauchbar — eine erfundene ist gefaehrlich.\n4. Nenne bei jeder Aussage die Quelle (Feld dokument_name aus den Treffern).\n5. Antworte kurz, sachlich und auf Deutsch. Keine Floskeln, keine Anrede.\n\nAntworte IMMER exakt in diesem Format, ohne Markdown-Ueberschriften:\nANTWORT: <deine Antwort in hoechstens 8 Saetzen>\nQUELLEN: <Dokumentnamen durch Komma getrennt>\n\nFindest du keine passenden Abschnitte, antworte woertlich:\nANTWORT: Dazu finde ich nichts in den hinterlegten Unterlagen.\nQUELLEN: KEINE",
+          "maxIterations": 5
+        }
+      },
+      "id": "agent-wissen",
+      "name": "Wissens-Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [
+        820,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4.1-mini",
+          "mode": "list"
+        },
+        "options": {
+          "temperature": 0
+        }
+      },
+      "id": "lm-chat",
+      "name": "Sprachmodell",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        760,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "retrieve-as-tool",
+        "toolName": "firmenwissen",
+        "toolDescription": "Durchsucht die interne Wissensdatenbank des Unternehmens (Handbuecher, Arbeitsanweisungen, Preislisten, Richtlinien). Eingabe: Suchbegriffe zur Frage. Liefert Textabschnitte mit dem Feld dokument_name als Quellenangabe.",
+        "qdrantCollection": {
+          "__rl": true,
+          "value": "firmenwissen",
+          "mode": "id"
+        },
+        "topK": 6,
+        "includeDocumentMetadata": true,
+        "options": {}
+      },
+      "id": "tool-vectorstore",
+      "name": "Firmenwissen durchsuchen",
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreQdrant",
+      "typeVersion": 1.1,
+      "position": [
+        980,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "model": "text-embedding-3-small",
+        "options": {}
+      },
+      "id": "emb-suche",
+      "name": "Embeddings fuer die Suche",
+      "type": "@n8n/n8n-nodes-langchain.embeddingsOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        980,
+        660
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Der Agent liefert Text, kein JSON. Hier wird das vereinbarte Format ANTWORT/QUELLEN\n// zerlegt und - wichtiger - geprueft, ob wirklich eine belegte Antwort vorliegt.\n// Warum die zweite Pruefung: Ein Sprachmodell haelt sich in etwa 1 von 50 Faellen nicht\n// an sein Format oder liefert eine fluessig formulierte Antwort ohne jede Quelle.\n// Genau diese Faelle sind die gefaehrlichen, weil sie besonders ueberzeugend klingen.\nconst anfrage = $('Frage entgegennehmen').first().json.body || {};\nconst roh = String($input.first().json.output ?? $input.first().json.text ?? '').trim();\n\nconst antwortTreffer = roh.match(/ANTWORT:\\s*([\\s\\S]*?)(?:\\n\\s*QUELLEN:|$)/i);\nconst quellenTreffer = roh.match(/QUELLEN:\\s*([\\s\\S]*)$/i);\n\nconst antwort = (antwortTreffer ? antwortTreffer[1] : roh).trim();\nconst quellenRoh = (quellenTreffer ? quellenTreffer[1] : '').trim();\n\nconst quellen = quellenRoh\n  .split(/[,;\\n]/)\n  .map((q) => q.trim())\n  .filter((q) => q && !/^(keine|none|-|n\\/a)$/i.test(q));\n\n// Formulierungen, mit denen der Agent laut Prompt die Fehlanzeige meldet.\nconst fehlanzeige = /(finde ich nichts|keine passenden|nicht in den (hinterlegten )?unterlagen|liegt mir nicht vor)/i;\n\nconst wissensluecke = quellen.length === 0 || fehlanzeige.test(antwort) || antwort.length < 15;\n\nreturn [{\n  json: {\n    frage: String(anfrage.frage || '').trim(),\n    abteilung: String(anfrage.abteilung || 'unbekannt').trim(),\n    antwort: wissensluecke\n      // Einheitliche, ehrliche Formulierung statt der jeweiligen Improvisation des Modells.\n      ? 'Dazu finde ich nichts in den hinterlegten Unterlagen. Bitte an die Fachabteilung wenden — die Frage wurde als Wissensluecke vermerkt.'\n      : antwort,\n    quellen: quellen.join(', ') || 'KEINE',\n    treffer: quellen.length,\n    wissensluecke,\n    hinweis: 'Diese Antwort wurde von einem KI-Assistenten aus internen Dokumenten erzeugt. Im Zweifel gilt das Originaldokument.',\n    zeitpunkt: new Date().toISOString(),\n  },\n}];"
+      },
+      "id": "code-auswerten",
+      "name": "Antwort und Quellen pruefen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "HIER_SHEET_ID_EINTRAGEN",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Wissensfragen",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "zeitpunkt": "={{ $json.zeitpunkt }}",
+            "abteilung": "={{ $json.abteilung }}",
+            "frage": "={{ $json.frage }}",
+            "antwort": "={{ $json.antwort }}",
+            "quellen": "={{ $json.quellen }}",
+            "treffer": "={{ $json.treffer }}",
+            "wissensluecke": "={{ $json.wissensluecke ? 'ja' : 'nein' }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "sheet-protokoll",
+      "name": "Frage und Antwort protokollieren",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1260,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "luecke",
+              "leftValue": "={{ $('Antwort und Quellen pruefen').item.json.wissensluecke }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-luecke",
+      "name": "Wissensluecke?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1480,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "HIER_EMPFAENGER_EINTRAGEN",
+        "subject": "=Wissensluecke: {{ $('Antwort und Quellen pruefen').item.json.frage.slice(0, 60) }}",
+        "emailType": "text",
+        "message": "=Zu dieser Frage liefert der Wissensindex keine Fundstelle:\n\nFrage: {{ $('Antwort und Quellen pruefen').item.json.frage }}\nAbteilung: {{ $('Antwort und Quellen pruefen').item.json.abteilung }}\nZeitpunkt: {{ $now.format('dd.MM.yyyy HH:mm') }}\n\nBitte pruefen, ob ein Dokument fehlt, veraltet ist oder nicht in der Dokumentenliste steht.\nHaeufen sich Fragen zu einem Thema, lohnt eine kurze Arbeitsanweisung mehr als jede weitere Nachfrage.",
+        "options": {}
+      },
+      "id": "mail-luecke",
+      "name": "Wissensluecke melden",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        1700,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: $('Antwort und Quellen pruefen').item.json.wissensluecke ? 'keine_fundstelle' : 'ok', antwort: $('Antwort und Quellen pruefen').item.json.antwort, quellen: $('Antwort und Quellen pruefen').item.json.quellen, treffer: $('Antwort und Quellen pruefen').item.json.treffer, hinweis: $('Antwort und Quellen pruefen').item.json.hinweis }) }}",
+        "options": {}
+      },
+      "id": "respond-ok",
+      "name": "Antwort zurueckgeben",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1920,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: 'frage_fehlt', antwort: 'Bitte eine Frage mit mindestens 5 Zeichen im Feld \"frage\" senden.' }) }}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "respond-fehler",
+      "name": "Rueckfrage zurueckgeben",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        820,
+        640
+      ]
+    }
+  ],
+  "connections": {
+    "Frage entgegennehmen": {
+      "main": [
+        [
+          {
+            "node": "Frage brauchbar?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Frage brauchbar?": {
+      "main": [
+        [
+          {
+            "node": "Wissens-Agent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Rueckfrage zurueckgeben",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sprachmodell": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Wissens-Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Firmenwissen durchsuchen": {
+      "ai_tool": [
+        [
+          {
+            "node": "Wissens-Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Embeddings fuer die Suche": {
+      "ai_embedding": [
+        [
+          {
+            "node": "Firmenwissen durchsuchen",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wissens-Agent": {
+      "main": [
+        [
+          {
+            "node": "Antwort und Quellen pruefen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Antwort und Quellen pruefen": {
+      "main": [
+        [
+          {
+            "node": "Frage und Antwort protokollieren",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Frage und Antwort protokollieren": {
+      "main": [
+        [
+          {
+            "node": "Wissensluecke?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wissensluecke?": {
+      "main": [
+        [
+          {
+            "node": "Wissensluecke melden",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Antwort zurueckgeben",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wissensluecke melden": {
+      "main": [
+        [
+          {
+            "node": "Antwort zurueckgeben",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

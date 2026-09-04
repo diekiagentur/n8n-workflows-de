@@ -1,0 +1,224 @@
+{
+  "name": "Mahnwesen dreistufig mit Betragssperre",
+  "meta": {
+    "beschreibung": "Prueft taeglich die offenen Posten aus Google Sheets, berechnet die Ueberfaelligkeit und faehrt eine dreistufige Staffel: ab 7 Tagen freundliche Zahlungserinnerung, ab 21 Tagen erste Mahnung mit Verzugshinweis, ab 40 Tagen interne Eskalation an die Geschaeftsfuehrung statt Automatik-Mail. Offene Posten ueber 5.000 EUR werden grundsaetzlich nie automatisch gemahnt, sondern nur intern gemeldet. Lohnt sich fuer Betriebe ab etwa 30 offenen Posten im Monat, die das Nachfassen bisher von Hand erledigen. DSGVO-Hinweis: Kundendaten und Zahlungsverhalten sind personenbezogene Daten - Empfaengeradressen gehoeren in kein KI-Modell, dieser Workflow versendet sie ausschliesslich an den Kunden selbst und an die eigene Geschaeftsfuehrung.",
+    "kategorie": "Rechnungen & Buchhaltung",
+    "schwierigkeit": "mittel",
+    "benoetigt": ["Google Sheets", "SMTP-Postfach"],
+    "quelle": "https://die-ki-agentur.de/n8n-agentur/"
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Mahnwesen in drei Stufen\n\n**Ablauf:** Taeglich 8 Uhr → offene Posten aus Google Sheets → Faelligkeit und Stufe berechnen → Staffel verteilen → Mail raus → Mahnstatus zurueckschreiben.\n\n**Die Staffel:**\n- ab 7 Tagen: freundliche Zahlungserinnerung\n- ab 21 Tagen: 1. Mahnung mit Verzugshinweis\n- ab 40 Tagen: keine Automatik-Mail, sondern interne Eskalation an die Geschaeftsfuehrung\n- ueber 5.000 EUR: **nie** automatisch mahnen, immer nur interne Meldung\n\n**Vor dem Start:**\n1. Google-Sheet `Offene Posten` mit den Spalten: Rechnungsnummer, Kunde, E-Mail, Betrag, Faelligkeitsdatum, Status, Letzte Mahnstufe, Letzte Mahnung am\n2. Sheet-ID in beiden Google-Sheets-Nodes eintragen (HIER_SHEET_ID_EINTRAGEN)\n3. Absender-, Geschaeftsfuehrungs- und Firmenangaben in den drei Mail-Nodes ersetzen (HIER_...)\n4. Betragsgrenze und Stufen-Tage im Code-Node an die eigene Zahlungsmoral anpassen\n5. Erster Lauf mit Testdaten - die Mail-Nodes bis dahin deaktiviert lassen\n\n**Wichtig:** Der Workflow mahnt eine Stufe nur einmal. Dafuer muss die Spalte `Letzte Mahnstufe` zurueckgeschrieben werden - sonst laeuft taeglich dieselbe Mail raus.\n\n**Betreuung:** https://die-ki-agentur.de/n8n-agentur/",
+        "height": 640,
+        "width": 460
+      },
+      "id": "note-doku",
+      "name": "Kurzanleitung",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-140, -60]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {"field": "days", "triggerAtHour": 8, "triggerAtMinute": 0}
+          ]
+        }
+      },
+      "id": "trigger-taeglich",
+      "name": "Taeglich um 8 Uhr",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [380, 320]
+    },
+    {
+      "parameters": {
+        "documentId": {"__rl": true, "value": "HIER_SHEET_ID_EINTRAGEN", "mode": "id"},
+        "sheetName": {"__rl": true, "value": "Offene Posten", "mode": "name"},
+        "options": {}
+      },
+      "id": "sheet-lesen",
+      "name": "Offene Posten lesen",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [600, 320]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Die komplette Mahnlogik steht bewusst in einem einzigen Code-Node und nicht\n// verteilt auf mehrere IF-Nodes: Wer dafuer geradesteht (Buchhaltung, GF), muss\n// die Regeln an einer Stelle nachlesen und aendern koennen, ohne den Canvas zu\n// verstehen. Jede Zeile bekommt eine Aktion UND eine Begruendung - auch die,\n// bei denen nichts passiert. Sonst sucht man spaeter, warum nicht gemahnt wurde.\n\nconst BETRAGSGRENZE_EUR = 5000;   // darueber entscheidet immer ein Mensch\nconst STUFEN = [\n  { ab_tagen: 40, aktion: 'eskalation', stufe: 3 },\n  { ab_tagen: 21, aktion: 'mahnung_1', stufe: 2 },\n  { ab_tagen: 7,  aktion: 'erinnerung', stufe: 1 },\n];\n\n// Google Sheets liefert Datumswerte je nach Zellformat als TT.MM.JJJJ oder als\n// ISO-String zurueck. Beide Varianten zulassen, sonst faellt die halbe Liste\n// stillschweigend hinten runter.\nfunction alsDatum(wert) {\n  if (!wert) return null;\n  const s = String(wert).trim();\n  const de = s.match(/^(\\d{1,2})\\.(\\d{1,2})\\.(\\d{4})$/);\n  if (de) return new Date(Date.UTC(Number(de[3]), Number(de[2]) - 1, Number(de[1])));\n  const d = new Date(s);\n  return isNaN(d.getTime()) ? null : d;\n}\n\n// \"1.234,56 EUR\" ist Text, kein Betrag. Ohne diese Normalisierung vergleicht man\n// Zeichenketten mit Zahlen und die Betragssperre greift nie.\nfunction alsBetrag(wert) {\n  if (typeof wert === 'number') return wert;\n  const s = String(wert ?? '').replace(/[^0-9,.\\-]/g, '');\n  if (!s) return 0;\n  return Number(s.replace(/\\./g, '').replace(',', '.')) || 0;\n}\n\nfunction alsDeutschesDatum(d) {\n  const t = String(d.getUTCDate()).padStart(2, '0');\n  const m = String(d.getUTCMonth() + 1).padStart(2, '0');\n  return t + '.' + m + '.' + d.getUTCFullYear();\n}\n\nconst heute = new Date();\nheute.setUTCHours(0, 0, 0, 0);\nconst raus = [];\n\nfor (const eintrag of $input.all()) {\n  const p = eintrag.json;\n  const faellig = alsDatum(p['Faelligkeitsdatum']);\n  const offen = alsBetrag(p['Betrag']);\n  const status = String(p['Status'] ?? '').toLowerCase();\n  const bereitsGemahnt = Number(p['Letzte Mahnstufe'] ?? 0) || 0;\n  const empfaenger = String(p['E-Mail'] ?? '').trim();\n\n  let aktion = 'keine';\n  let grund = '';\n  let stufe = 0;\n  let tage = null;\n\n  if (!faellig) {\n    grund = 'Kein oder unlesbares Faelligkeitsdatum';\n  } else if (status.includes('bezahlt') || status.includes('storn') || status.includes('gutschrift')) {\n    grund = 'Posten ist erledigt (' + (p['Status'] ?? '') + ')';\n  } else if (offen <= 0) {\n    grund = 'Kein offener Betrag';\n  } else {\n    tage = Math.floor((heute.getTime() - faellig.getTime()) / 86400000);\n    const treffer = STUFEN.find((s) => tage >= s.ab_tagen);\n    if (!treffer) {\n      grund = tage < 0\n        ? 'Noch ' + Math.abs(tage) + ' Tage bis zur Faelligkeit'\n        : 'Erst ' + tage + ' Tage ueberfaellig, die Staffel beginnt bei 7';\n    } else if (treffer.stufe <= bereitsGemahnt) {\n      // Ohne diese Sperre laeuft jeden Morgen dieselbe Mahnung raus - der\n      // sicherste Weg, einen zahlenden Kunden zu verlieren.\n      grund = 'Stufe ' + treffer.stufe + ' wurde bereits versendet';\n    } else {\n      stufe = treffer.stufe;\n      aktion = treffer.aktion;\n    }\n  }\n\n  let intern_grund = '';\n  if (aktion !== 'keine') {\n    if (offen > BETRAGSGRENZE_EUR) {\n      // Harte Sperre: eine falsch adressierte Mahnung ueber 5.000 EUR kostet\n      // mehr Kundenbeziehung, als sie an Verzugszinsen einbringt.\n      aktion = 'intern';\n      intern_grund = 'Offener Betrag ueber der Automatikgrenze von ' + BETRAGSGRENZE_EUR + ' EUR - bitte persoenlich klaeren, keine Automatik-Mahnung.';\n    } else if (aktion === 'eskalation') {\n      aktion = 'intern';\n      intern_grund = tage + ' Tage ueberfaellig. Stufe 3 bedeutet zweite Mahnung, Ratenvereinbarung oder Inkasso - das entscheidet die Geschaeftsfuehrung, nicht der Workflow.';\n    } else if (!empfaenger.includes('@')) {\n      aktion = 'intern';\n      intern_grund = 'Keine gueltige E-Mail-Adresse im offenen Posten hinterlegt - Versand nur per Post moeglich.';\n    }\n  }\n\n  raus.push({\n    json: {\n      rechnungsnummer: String(p['Rechnungsnummer'] ?? '').trim(),\n      kunde: String(p['Kunde'] ?? '').trim(),\n      empfaenger,\n      betrag_eur: Number(offen.toFixed(2)),\n      betrag_formatiert: offen.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),\n      faellig_am: faellig ? alsDeutschesDatum(faellig) : null,\n      tage_ueberfaellig: tage,\n      mahnstufe: stufe,\n      aktion,\n      grund,\n      intern_grund,\n      geprueft_am: alsDeutschesDatum(heute),\n    },\n  });\n}\n\nreturn raus;"
+      },
+      "id": "stufe-bestimmen",
+      "name": "Faelligkeit und Mahnstufe bestimmen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [820, 320]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {"caseSensitive": true, "version": 2},
+          "conditions": [
+            {
+              "id": "handlungsbedarf",
+              "leftValue": "={{ $json.aktion }}",
+              "rightValue": "keine",
+              "operator": {"type": "string", "operation": "notEquals"}
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-handlungsbedarf",
+      "name": "Handlungsbedarf?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1040, 320]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {"caseSensitive": true, "version": 2},
+                "conditions": [
+                  {
+                    "id": "r-erinnerung",
+                    "leftValue": "={{ $json.aktion }}",
+                    "rightValue": "erinnerung",
+                    "operator": {"type": "string", "operation": "equals"}
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Stufe 1 - Erinnerung"
+            },
+            {
+              "conditions": {
+                "options": {"caseSensitive": true, "version": 2},
+                "conditions": [
+                  {
+                    "id": "r-mahnung",
+                    "leftValue": "={{ $json.aktion }}",
+                    "rightValue": "mahnung_1",
+                    "operator": {"type": "string", "operation": "equals"}
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Stufe 2 - Mahnung"
+            },
+            {
+              "conditions": {
+                "options": {"caseSensitive": true, "version": 2},
+                "conditions": [
+                  {
+                    "id": "r-intern",
+                    "leftValue": "={{ $json.aktion }}",
+                    "rightValue": "intern",
+                    "operator": {"type": "string", "operation": "equals"}
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Stufe 3 - intern"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "switch-staffel",
+      "name": "Mahnstufe verteilen",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [1260, 320]
+    },
+    {
+      "parameters": {
+        "fromEmail": "buchhaltung@HIER_FIRMENDOMAIN_EINTRAGEN.de",
+        "toEmail": "={{ $json.empfaenger }}",
+        "subject": "=Zahlungserinnerung zu Rechnung {{ $json.rechnungsnummer }}",
+        "emailFormat": "text",
+        "text": "=Guten Tag,\n\nunsere Rechnung {{ $json.rechnungsnummer }} ueber {{ $json.betrag_formatiert }} EUR war am {{ $json.faellig_am }} faellig. Ein Zahlungseingang ist bei uns bisher nicht verbucht.\n\nErfahrungsgemaess geht so etwas im Tagesgeschaeft unter - bitte pruefen Sie den Vorgang kurz. Falls die Zahlung bereits unterwegs ist oder die Rechnung nicht angekommen ist, geben Sie uns einfach kurz Bescheid.\n\nMit freundlichen Gruessen\nHIER_ABSENDERNAME_EINTRAGEN\nBuchhaltung, HIER_FIRMENNAME_EINTRAGEN",
+        "options": {}
+      },
+      "id": "mail-erinnerung",
+      "name": "Zahlungserinnerung senden",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [1500, 100]
+    },
+    {
+      "parameters": {
+        "fromEmail": "buchhaltung@HIER_FIRMENDOMAIN_EINTRAGEN.de",
+        "toEmail": "={{ $json.empfaenger }}",
+        "subject": "=Mahnung zu Rechnung {{ $json.rechnungsnummer }}",
+        "emailFormat": "text",
+        "text": "=Guten Tag,\n\ntrotz unserer Zahlungserinnerung ist die Rechnung {{ $json.rechnungsnummer }} ueber {{ $json.betrag_formatiert }} EUR weiterhin offen. Faellig war sie am {{ $json.faellig_am }}, das sind inzwischen {{ $json.tage_ueberfaellig }} Tage.\n\nWir bitten Sie, den Betrag bis zum {{ $now.plus({ days: 7 }).toFormat('dd.MM.yyyy') }} auf unser bekanntes Konto zu ueberweisen. Nach Ablauf dieser Frist behalten wir uns vor, Verzugszinsen sowie im Geschaeftsverkehr die Pauschale nach Paragraf 288 Abs. 5 BGB geltend zu machen.\n\nSollte es einen sachlichen Grund fuer die Zurueckhaltung geben oder eine Ratenzahlung sinnvoll sein, melden Sie sich bitte kurz bei uns - das ist fuer beide Seiten der guenstigere Weg.\n\nMit freundlichen Gruessen\nHIER_ABSENDERNAME_EINTRAGEN\nBuchhaltung, HIER_FIRMENNAME_EINTRAGEN",
+        "options": {}
+      },
+      "id": "mail-mahnung",
+      "name": "Erste Mahnung senden",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [1500, 320]
+    },
+    {
+      "parameters": {
+        "fromEmail": "buchhaltung@HIER_FIRMENDOMAIN_EINTRAGEN.de",
+        "toEmail": "geschaeftsfuehrung@HIER_FIRMENDOMAIN_EINTRAGEN.de",
+        "subject": "=Offener Posten braucht eine Entscheidung: {{ $json.kunde }} ({{ $json.betrag_formatiert }} EUR)",
+        "emailFormat": "text",
+        "text": "=Dieser offene Posten wurde bewusst NICHT automatisch gemahnt.\n\nKunde:            {{ $json.kunde }}\nRechnung:         {{ $json.rechnungsnummer }}\nOffener Betrag:   {{ $json.betrag_formatiert }} EUR\nFaellig seit:     {{ $json.faellig_am }} ({{ $json.tage_ueberfaellig }} Tage)\nErreichte Stufe:  {{ $json.mahnstufe }}\n\nGrund fuer die interne Meldung:\n{{ $json.intern_grund }}\n\nNaechster Schritt: Vorgang pruefen und entscheiden, ob angerufen, gemahnt, gestundet oder abgegeben wird. Der Workflow setzt die Mahnstufe im Sheet hoch, meldet diesen Posten also nicht jeden Tag erneut.",
+        "options": {}
+      },
+      "id": "mail-intern",
+      "name": "Interne Meldung an Geschaeftsfuehrung",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [1500, 540]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {"__rl": true, "value": "HIER_SHEET_ID_EINTRAGEN", "mode": "id"},
+        "sheetName": {"__rl": true, "value": "Offene Posten", "mode": "name"},
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": ["Rechnungsnummer"],
+          "value": {
+            "Rechnungsnummer": "={{ $('Faelligkeit und Mahnstufe bestimmen').item.json.rechnungsnummer }}",
+            "Letzte Mahnstufe": "={{ $('Faelligkeit und Mahnstufe bestimmen').item.json.mahnstufe }}",
+            "Letzte Mahnung am": "={{ $('Faelligkeit und Mahnstufe bestimmen').item.json.geprueft_am }}",
+            "Status": "={{ $('Faelligkeit und Mahnstufe bestimmen').item.json.aktion === 'intern' ? 'Intern gemeldet' : 'Gemahnt Stufe ' + $('Faelligkeit und Mahnstufe bestimmen').item.json.mahnstufe }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "sheet-status",
+      "name": "Mahnstatus zurueckschreiben",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1800, 320]
+    }
+  ],
+  "connections": {
+    "Taeglich um 8 Uhr": {"main": [[{"node": "Offene Posten lesen", "type": "main", "index": 0}]]},
+    "Offene Posten lesen": {"main": [[{"node": "Faelligkeit und Mahnstufe bestimmen", "type": "main", "index": 0}]]},
+    "Faelligkeit und Mahnstufe bestimmen": {"main": [[{"node": "Handlungsbedarf?", "type": "main", "index": 0}]]},
+    "Handlungsbedarf?": {"main": [[{"node": "Mahnstufe verteilen", "type": "main", "index": 0}], []]},
+    "Mahnstufe verteilen": {"main": [[{"node": "Zahlungserinnerung senden", "type": "main", "index": 0}], [{"node": "Erste Mahnung senden", "type": "main", "index": 0}], [{"node": "Interne Meldung an Geschaeftsfuehrung", "type": "main", "index": 0}]]},
+    "Zahlungserinnerung senden": {"main": [[{"node": "Mahnstatus zurueckschreiben", "type": "main", "index": 0}]]},
+    "Erste Mahnung senden": {"main": [[{"node": "Mahnstatus zurueckschreiben", "type": "main", "index": 0}]]},
+    "Interne Meldung an Geschaeftsfuehrung": {"main": [[{"node": "Mahnstatus zurueckschreiben", "type": "main", "index": 0}]]}
+  },
+  "settings": {"executionOrder": "v1"},
+  "pinData": {}
+}

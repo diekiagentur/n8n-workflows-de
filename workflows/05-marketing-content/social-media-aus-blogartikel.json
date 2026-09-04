@@ -1,0 +1,191 @@
+{
+  "name": "Social-Media-Beitraege aus Blogartikeln erzeugen (mit Freigabe)",
+  "meta": {
+    "beschreibung": "Liest taeglich den Blog-RSS-Feed, erkennt neue Artikel und laesst die KI daraus plattformspezifische Beitraege texten: LinkedIn sachlich-fachlich, Instagram kuerzer und direkter, jeweils mit Hashtag-Vorschlaegen und einem Bild-Prompt. Bewusste Entscheidung: Es wird nichts automatisch veroeffentlicht — alles landet als Entwurf in einem Freigabe-Sheet, die Marketing-Person bekommt eine Erinnerung. So bleibt die redaktionelle Verantwortung beim Menschen. Hinweis: KI-generierte Bilder gelten als synthetische Inhalte und sind nach Art. 50 EU AI Act zu kennzeichnen; ohne AV-Vertrag mit dem KI-Anbieter keine personenbezogenen Daten in die Prompts geben.",
+    "kategorie": "Marketing & Content",
+    "schwierigkeit": "mittel",
+    "benoetigt": ["Blog mit RSS-Feed", "OpenAI-API (oder Ollama)", "Google Sheets", "SMTP-Postfach"],
+    "quelle": "https://die-ki-agentur.de/n8n-agentur/"
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Social-Media-Beitraege aus Blogartikeln\n\n**Ablauf:** Taeglich 07:30 Uhr RSS-Feed lesen → nur Artikel der letzten 24 h → KI textet LinkedIn + Instagram inkl. Hashtags → KI schlaegt Bild-Prompt vor → Laengen- und Qualitaetspruefung → Zeile im Freigabe-Sheet → Erinnerungsmail ans Marketing.\n\n**Bewusst NICHT automatisch gepostet.** Der Workflow endet bei der Freigabe. Wer direkt posten will, haengt hinter das Sheet einen eigenen Publish-Workflow — dann aber ohne redaktionelle Kontrolle.\n\n**Vor dem Start:**\n1. RSS-URL im Node `Blog-Feed lesen` eintragen (meist /feed oder /rss.xml)\n2. Google-Sheet `Freigabe` anlegen, Spalten: Erfasst am, Artikel, Link, LinkedIn-Text, LinkedIn-Hashtags, Instagram-Text, Instagram-Hashtags, Bild-Prompt, Alt-Text, Bildstil, Status, Pruefhinweis\n3. Sheet-ID und Empfaengeradresse (HIER_...) ersetzen\n4. Zeitplan an die Publikationsfrequenz anpassen — bei woechentlichem Blog reicht ein Lauf pro Woche\n5. KI-Bilder beim Posten als KI-generiert kennzeichnen (Art. 50 EU AI Act)\n\n**Betreuung:** https://die-ki-agentur.de/n8n-agentur/",
+        "height": 620,
+        "width": 480
+      },
+      "id": "note-doku",
+      "name": "Kurzanleitung",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-160, -80]
+    },
+    {
+      "parameters": {
+        "rule": {"interval": [{"field": "cronExpression", "expression": "30 7 * * 1-5"}]}
+      },
+      "id": "trigger-plan",
+      "name": "Taeglicher Lauf",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [380, 200]
+    },
+    {
+      "parameters": {
+        "url": "HIER_BLOG_RSS_URL_EINTRAGEN",
+        "options": {"ignoreSSL": false}
+      },
+      "id": "rss-lesen",
+      "name": "Blog-Feed lesen",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1.1,
+      "position": [600, 200],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 3
+    },
+    {
+      "parameters": {
+        "jsCode": "// Ein RSS-Feed liefert immer dieselben letzten Eintraege. Ohne Altersfilter\n// wuerde der Workflow jeden Tag dieselben Artikel erneut vertexten — das kostet\n// Tokens und produziert Dubletten im Freigabe-Sheet.\n// 26 statt 24 Stunden als Puffer, falls der Lauf sich mal verspaetet.\nconst maxAlterStunden = 26;\nconst jetzt = Date.now();\nconst raus = [];\n\nfor (const eintrag of $input.all()) {\n  const a = eintrag.json || {};\n  const datum = a.isoDate || a.pubDate || a.date || null;\n  const alterStunden = datum ? (jetzt - new Date(datum).getTime()) / 3600000 : 99999;\n  if (alterStunden > maxAlterStunden || alterStunden < 0) continue;\n\n  // HTML raus, Whitespace normalisieren — Roh-HTML im Prompt kostet nur Tokens.\n  const roh = String(a['content:encoded'] || a.content || a.contentSnippet || '');\n  const text = roh.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\\s+/g, ' ').trim();\n\n  // Aus einem Zweizeiler laesst sich kein sinnvoller Fachbeitrag ableiten.\n  if (text.length < 200) continue;\n\n  raus.push({\n    json: {\n      titel: a.title || 'Ohne Titel',\n      link: a.link || '',\n      veroeffentlicht: datum ? new Date(datum).toLocaleDateString('de-DE') : '',\n      auszug: text.slice(0, 4000)\n    }\n  });\n}\n\n// Leeres Ergebnis wuerde den ganzen Strang stumm abbrechen. Ein Marker-Item\n// haelt den Zweig sichtbar und macht Leerlaeufe im Execution-Log erkennbar.\nif (raus.length === 0) return [{ json: { keine_neuen_artikel: true, geprueft_am: new Date().toLocaleDateString('de-DE') } }];\nreturn raus;"
+      },
+      "id": "artikel-filtern",
+      "name": "Neue Artikel filtern",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [820, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {"caseSensitive": true, "version": 2},
+          "conditions": [{
+            "id": "hat-artikel",
+            "leftValue": "={{ $json.titel }}",
+            "rightValue": "",
+            "operator": {"type": "string", "operation": "notEmpty", "singleValue": true}
+          }],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "weiche-artikel",
+      "name": "Neue Artikel vorhanden?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1040, 200]
+    },
+    {
+      "parameters": {
+        "modelId": {"__rl": true, "value": "gpt-4.1-mini", "mode": "list"},
+        "messages": {"values": [
+          {"role": "system", "content": "Du bist Social-Media-Redakteur eines deutschen Mittelstandsunternehmens. Du schreibst auf Deutsch, in der Sie-Form, ohne Marketing-Floskeln und ohne Clickbait. Antworte AUSSCHLIESSLICH mit einem JSON-Objekt, keine Erklaerung davor oder danach.\n\nFelder:\n- linkedin_text (string): sachlich-fachlicher Beitrag, 700 bis 1300 Zeichen, erste Zeile ein konkreter Aufhaenger ohne Emoji, danach 2-3 kurze Absaetze, am Ende eine offene Fachfrage an die Leser. Keine Hashtags im Text.\n- linkedin_hashtags (array aus 3 bis 5 strings, jeweils mit Raute, deutsch oder etablierte Fachbegriffe)\n- instagram_text (string): maximal 600 Zeichen, direkter und konkreter Ton, kurze Saetze, hoechstens zwei Emojis, keine Hashtags im Text.\n- instagram_hashtags (array aus 8 bis 12 strings mit Raute, Mischung aus Reichweiten- und Nischen-Tags)\n- kernaussage (string): der Artikel in einem Satz\n- hinweis (string oder null): Anmerkung fuer die Redaktion, etwa wenn der Artikel zu duenn fuer einen guten Beitrag ist\n\nRegeln: Erfinde keine Zahlen, Zitate oder Fakten, die nicht im Artikeltext stehen. Keine Heils- oder Erfolgsversprechen. Nenne den Artikel-Link nicht im Text, der wird separat gesetzt."},
+          {"role": "user", "content": "=Titel: {{ $json.titel }}\nLink: {{ $json.link }}\nVeroeffentlicht: {{ $json.veroeffentlicht }}\n\nArtikeltext:\n{{ $json.auszug }}"}
+        ]},
+        "jsonOutput": true,
+        "options": {"temperature": 0.4}
+      },
+      "id": "ki-beitraege",
+      "name": "Beitraege texten",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [1260, 100]
+    },
+    {
+      "parameters": {
+        "modelId": {"__rl": true, "value": "gpt-4.1-mini", "mode": "list"},
+        "messages": {"values": [
+          {"role": "system", "content": "Du entwirfst Bildideen fuer Social-Media-Beitraege eines deutschen B2B-Unternehmens. Antworte AUSSCHLIESSLICH mit einem JSON-Objekt.\n\nFelder:\n- bild_prompt (string): englischer Prompt fuer einen Bildgenerator, konkret in Motiv, Perspektive, Licht und Bildausschnitt. Keine Logos, keine Markennamen, keine erkennbaren realen Personen, kein Text im Bild.\n- bild_alt_text (string): deutscher Alternativtext fuer Barrierefreiheit, ein Satz, beschreibt was zu sehen ist.\n- bildstil (string): kurze Stilangabe, zum Beispiel dokumentarische Fotografie, technische Illustration oder reduzierte Grafik.\n- eignung (string): entweder geeignet oder besser_eigenes_foto — letzteres, wenn ein echtes Foto aus dem Betrieb glaubwuerdiger waere als ein KI-Bild."},
+          {"role": "user", "content": "=Thema: {{ $('Neue Artikel filtern').item.json.titel }}\nKernaussage: {{ $json.message.content.kernaussage }}"}
+        ]},
+        "jsonOutput": true,
+        "options": {"temperature": 0.3}
+      },
+      "id": "ki-bildprompt",
+      "name": "Bild-Prompt vorschlagen",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [1480, 100]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Beide KI-Ergebnisse zusammenfuehren und gegen die harten Plattformgrenzen\n// pruefen. Ein Beitrag, der erst beim Einfuegen in LinkedIn abgeschnitten wird,\n// faellt sonst erst der Marketing-Person auf — hier steht es vorab im Sheet.\nconst LIMIT_LINKEDIN = 3000;\nconst LIMIT_INSTAGRAM = 2200;\nconst raus = [];\n\nfor (const eintrag of $input.all()) {\n  const bild = eintrag.json.message?.content ?? eintrag.json;\n  const texte = $('Beitraege texten').item.json.message?.content ?? $('Beitraege texten').item.json;\n  const artikel = $('Neue Artikel filtern').item.json;\n\n  const liText = String(texte.linkedin_text || '');\n  const igText = String(texte.instagram_text || '');\n  const liTags = Array.isArray(texte.linkedin_hashtags) ? texte.linkedin_hashtags : [];\n  const igTags = Array.isArray(texte.instagram_hashtags) ? texte.instagram_hashtags : [];\n\n  const maengel = [];\n  if (liText.length === 0) maengel.push('LinkedIn-Text fehlt');\n  if (liText.length > LIMIT_LINKEDIN) maengel.push('LinkedIn-Text ueberschreitet ' + LIMIT_LINKEDIN + ' Zeichen');\n  if (igText.length === 0) maengel.push('Instagram-Text fehlt');\n  if (igText.length > LIMIT_INSTAGRAM) maengel.push('Instagram-Text ueberschreitet ' + LIMIT_INSTAGRAM + ' Zeichen');\n  if (liTags.length < 3) maengel.push('Zu wenige LinkedIn-Hashtags');\n  if (igTags.length < 6) maengel.push('Zu wenige Instagram-Hashtags');\n  if (texte.hinweis) maengel.push('KI-Anmerkung: ' + texte.hinweis);\n  if (bild.eignung === 'besser_eigenes_foto') maengel.push('KI empfiehlt ein echtes Foto statt eines generierten Bildes');\n\n  raus.push({\n    json: {\n      erfasst_am: new Date().toLocaleDateString('de-DE'),\n      titel: artikel.titel,\n      link: artikel.link,\n      linkedin_text: liText,\n      linkedin_hashtags: liTags.join(' '),\n      linkedin_zeichen: liText.length,\n      instagram_text: igText,\n      instagram_hashtags: igTags.join(' '),\n      instagram_zeichen: igText.length,\n      bild_prompt: bild.bild_prompt || '',\n      bild_alt_text: bild.bild_alt_text || '',\n      bildstil: bild.bildstil || '',\n      status: maengel.length ? 'Entwurf - bitte pruefen' : 'Entwurf - freigabebereit',\n      pruefhinweis: maengel.length ? maengel.join('; ') : 'Keine Auffaelligkeiten'\n    }\n  });\n}\nreturn raus;"
+      },
+      "id": "freigabe-pruefen",
+      "name": "Entwuerfe pruefen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1700, 100]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {"__rl": true, "value": "HIER_SHEET_ID_EINTRAGEN", "mode": "id"},
+        "sheetName": {"__rl": true, "value": "Freigabe", "mode": "name"},
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Erfasst am": "={{ $json.erfasst_am }}",
+            "Artikel": "={{ $json.titel }}",
+            "Link": "={{ $json.link }}",
+            "LinkedIn-Text": "={{ $json.linkedin_text }}",
+            "LinkedIn-Hashtags": "={{ $json.linkedin_hashtags }}",
+            "Instagram-Text": "={{ $json.instagram_text }}",
+            "Instagram-Hashtags": "={{ $json.instagram_hashtags }}",
+            "Bild-Prompt": "={{ $json.bild_prompt }}",
+            "Alt-Text": "={{ $json.bild_alt_text }}",
+            "Bildstil": "={{ $json.bildstil }}",
+            "Status": "={{ $json.status }}",
+            "Pruefhinweis": "={{ $json.pruefhinweis }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "sheet-freigabe",
+      "name": "In Freigabe-Sheet eintragen",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1920, 100]
+    },
+    {
+      "parameters": {
+        "fromEmail": "HIER_ABSENDER_EMAIL_EINTRAGEN",
+        "toEmail": "HIER_EMAIL_MARKETING_EINTRAGEN",
+        "subject": "=Social-Media-Entwurf wartet auf Freigabe: {{ $json.titel }}",
+        "emailFormat": "text",
+        "text": "=Guten Morgen,\n\nzum Blogartikel \"{{ $json.titel }}\" liegen neue Entwuerfe im Freigabe-Sheet.\n\nArtikel: {{ $json.link }}\nStatus: {{ $json.status }}\nPruefhinweis: {{ $json.pruefhinweis }}\n\nLinkedIn ({{ $json.linkedin_zeichen }} Zeichen):\n{{ $json.linkedin_text }}\n\nHashtags: {{ $json.linkedin_hashtags }}\n\nInstagram ({{ $json.instagram_zeichen }} Zeichen):\n{{ $json.instagram_text }}\n\nHashtags: {{ $json.instagram_hashtags }}\n\nBildidee ({{ $json.bildstil }}):\n{{ $json.bild_prompt }}\nAlt-Text: {{ $json.bild_alt_text }}\n\nBitte im Sheet pruefen, anpassen und den Status auf \"freigegeben\" setzen. Es wird nichts automatisch veroeffentlicht.\nHinweis: KI-generierte Bilder beim Posten als solche kennzeichnen.\n\nErstellt automatisch von n8n.",
+        "options": {}
+      },
+      "id": "mail-erinnerung",
+      "name": "Marketing erinnern",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [2140, 100]
+    },
+    {
+      "parameters": {
+        "assignments": {"assignments": [
+          {"id": "status", "name": "lauf_status", "value": "Keine neuen Artikel im Feed - kein Handlungsbedarf", "type": "string"},
+          {"id": "datum", "name": "geprueft_am", "value": "={{ $json.geprueft_am }}", "type": "string"}
+        ]},
+        "options": {}
+      },
+      "id": "leerlauf",
+      "name": "Kein neuer Artikel",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1260, 340]
+    }
+  ],
+  "connections": {
+    "Taeglicher Lauf": {"main": [[{"node": "Blog-Feed lesen", "type": "main", "index": 0}]]},
+    "Blog-Feed lesen": {"main": [[{"node": "Neue Artikel filtern", "type": "main", "index": 0}]]},
+    "Neue Artikel filtern": {"main": [[{"node": "Neue Artikel vorhanden?", "type": "main", "index": 0}]]},
+    "Neue Artikel vorhanden?": {"main": [[{"node": "Beitraege texten", "type": "main", "index": 0}], [{"node": "Kein neuer Artikel", "type": "main", "index": 0}]]},
+    "Beitraege texten": {"main": [[{"node": "Bild-Prompt vorschlagen", "type": "main", "index": 0}]]},
+    "Bild-Prompt vorschlagen": {"main": [[{"node": "Entwuerfe pruefen", "type": "main", "index": 0}]]},
+    "Entwuerfe pruefen": {"main": [[{"node": "In Freigabe-Sheet eintragen", "type": "main", "index": 0}]]},
+    "In Freigabe-Sheet eintragen": {"main": [[{"node": "Marketing erinnern", "type": "main", "index": 0}]]}
+  },
+  "settings": {"executionOrder": "v1"},
+  "pinData": {}
+}

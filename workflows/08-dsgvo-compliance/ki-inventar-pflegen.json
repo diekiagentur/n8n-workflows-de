@@ -1,0 +1,186 @@
+{
+  "name": "KI-Inventar nach EU AI Act pflegen (Meldeformular mit Risikoeinschaetzung)",
+  "meta": {
+    "beschreibung": "Abteilungen melden ueber ein Formular, welche KI-Systeme sie einsetzen — System, Zweck, Datenarten, Anbieter, Rechtsgrundlage. Eine KI schlaegt daraufhin die Risikoklasse nach EU AI Act vor (verbotene Praktik, Hochrisiko nach Anhang III, Transparenzpflicht nach Art. 50 oder minimales Risiko), immer mit Begruendung und dem ausdruecklichen Hinweis, dass die finale Einstufung ein Mensch vornehmen muss. Jede Meldung landet im KI-Inventar-Sheet; bei Verdacht auf Hochrisiko oder verbotene Praktik geht sofort eine Meldung an die Geschaeftsfuehrung. Fristen: Die Pflicht zu ausreichender KI-Kompetenz nach Art. 4 sowie das Verbot bestimmter Praktiken gelten seit dem 02.02.2025, die Transparenzpflichten nach Art. 50 und die Hochrisiko-Anforderungen fuer Anhang-III-Systeme seit dem 02.08.2026, die Anforderungen fuer Hochrisiko-Systeme nach Anhang I ab dem 02.08.2027. Der Workflow dokumentiert und strukturiert, er ersetzt keine Rechtsberatung. Fuer den KI-Anbieter ist ein AV-Vertrag noetig, sofern personenbezogene Daten im Formular landen — alternativ ein lokales Modell.",
+    "kategorie": "DSGVO & Compliance",
+    "schwierigkeit": "mittel",
+    "benoetigt": ["OpenAI-API (oder Ollama)", "Google Sheets", "SMTP-Postfach"],
+    "quelle": "https://die-ki-agentur.de/n8n-agentur/"
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## KI-Inventar pflegen (EU AI Act)\n\n**Ablauf:** Abteilung meldet ein KI-System ueber das Formular → Meldung normalisieren und Stichwortpruefung auf Anhang-III-Bereiche → KI schlaegt Risikoklasse mit Begruendung vor → Vorschlag gegen die zulaessigen Klassen validieren → Eintrag ins Inventar-Sheet → bei Hochrisiko-Verdacht oder verbotener Praktik sofort Mail an die Geschaeftsfuehrung.\n\n**Wichtig:** Die KI liefert einen **Vorschlag**, keine Einstufung. Jeder Eintrag geht mit Status `Vorschlag - menschliche Pruefung offen` ins Inventar und muss von der verantwortlichen Person bestaetigt werden.\n\n**Fristen im Ueberblick:**\n- seit 02.02.2025: Verbotene Praktiken (Art. 5) und KI-Kompetenzpflicht (Art. 4)\n- seit 02.08.2026: Transparenzpflichten (Art. 50), Hochrisiko nach Anhang III\n- ab 02.08.2027: Hochrisiko nach Anhang I (produktintegrierte Systeme)\n\n**Vor dem Start:**\n1. Google-Sheet `KI-Inventar` anlegen, Spalten: Meldung-ID, Gemeldet am, Abteilung, Ansprechpartner, System, Anbieter, Zweck, Datenarten, Betroffene, Rechtsgrundlage, Risikoklasse (Vorschlag), Begruendung, Einschlaegige Kategorie, Pflichten, Offene Fragen, Pruefstatus, Geprueft von, Geprueft am\n2. Sheet-ID, Absender- und Geschaeftsfuehrungsadresse (HIER_...) ersetzen\n3. Formular-Link intern verteilen — er ist oeffentlich erreichbar, also keine Kundendaten abfragen lassen\n4. Bei personenbezogenen Angaben: AV-Vertrag mit dem KI-Anbieter oder lokales Modell (Ollama) einsetzen\n\n**Betreuung:** https://die-ki-agentur.de/n8n-agentur/",
+        "height": 700,
+        "width": 520
+      },
+      "id": "note-doku",
+      "name": "Kurzanleitung",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-200, -140]
+    },
+    {
+      "parameters": {
+        "path": "ki-inventar-meldung",
+        "formTitle": "KI-System melden",
+        "formDescription": "Bitte jedes eingesetzte oder geplante KI-System melden - auch Testbetrieb und kostenlose Tools. Die Angaben fliessen ins KI-Inventar nach EU AI Act. Keine Kunden- oder Personendaten in die Freitextfelder eintragen.",
+        "formFields": {"values": [
+          {"fieldLabel": "Abteilung", "requiredField": true},
+          {"fieldLabel": "Ansprechpartner (E-Mail)", "fieldType": "email", "requiredField": true},
+          {"fieldLabel": "System / Anwendung", "placeholder": "z. B. ChatGPT Team, Bewerber-Screening-Tool, Kamerasystem Werk 2", "requiredField": true},
+          {"fieldLabel": "Anbieter", "placeholder": "z. B. OpenAI, Personio, eigene Entwicklung", "requiredField": true},
+          {"fieldLabel": "Zweck / Einsatzbereich", "fieldType": "textarea", "placeholder": "Wofuer wird das System eingesetzt? Wer nutzt es? Welche Entscheidungen stuetzt es?", "requiredField": true},
+          {"fieldLabel": "Verarbeitete Datenarten", "fieldType": "textarea", "placeholder": "z. B. Bewerbungsunterlagen, Kundenanfragen, Maschinendaten, keine personenbezogenen Daten", "requiredField": true},
+          {"fieldLabel": "Betroffene Personengruppen", "fieldType": "dropdown", "fieldOptions": {"values": [{"option": "Keine personenbezogenen Daten"}, {"option": "Mitarbeitende"}, {"option": "Bewerbende"}, {"option": "Kunden / Interessenten"}, {"option": "Lieferanten"}, {"option": "Mehrere Gruppen"}]}, "requiredField": true},
+          {"fieldLabel": "Rechtsgrundlage der Verarbeitung", "fieldType": "dropdown", "fieldOptions": {"values": [{"option": "Vertragserfuellung (Art. 6 Abs. 1 lit. b)"}, {"option": "Berechtigtes Interesse (Art. 6 Abs. 1 lit. f)"}, {"option": "Einwilligung (Art. 6 Abs. 1 lit. a)"}, {"option": "Rechtliche Verpflichtung (Art. 6 Abs. 1 lit. c)"}, {"option": "Beschaeftigtendatenschutz (Par. 26 BDSG)"}, {"option": "Nicht einschlaegig - keine personenbezogenen Daten"}, {"option": "Unklar - bitte pruefen"}]}, "requiredField": true},
+          {"fieldLabel": "Wirkt das System auf Entscheidungen ueber Menschen?", "fieldType": "dropdown", "fieldOptions": {"values": [{"option": "Nein, reine Unterstuetzung ohne Personenbezug"}, {"option": "Ja, es bereitet Entscheidungen vor"}, {"option": "Ja, es entscheidet weitgehend automatisiert"}, {"option": "Unklar"}]}, "requiredField": true},
+          {"fieldLabel": "Ausgaben sind fuer Externe sichtbar?", "fieldType": "dropdown", "fieldOptions": {"values": [{"option": "Nein, nur intern"}, {"option": "Ja, Texte oder Bilder gehen nach aussen"}, {"option": "Ja, direkter Dialog mit Kunden (Chatbot, Telefonassistent)"}]}, "requiredField": true}
+        ]},
+        "options": {"appendAttribution": false}
+      },
+      "id": "trigger-formular",
+      "name": "Meldeformular KI-System",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
+      "position": [400, 240]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Zwei Dinge passieren hier bewusst VOR der KI:\n// 1. Eine eigene Stichwortpruefung auf die typischen Anhang-III-Bereiche. Wenn\n//    die KI spaeter harmloser einstuft als diese Heuristik, faellt das auf -\n//    ein Modell allein soll nicht das einzige Sicherheitsnetz sein.\n// 2. Eine stabile Meldung-ID, damit sich Inventar-Zeile, Mail und spaetere\n//    Pruefung eindeutig zuordnen lassen.\nconst anhangIII = [\n  { kategorie: 'Beschaeftigung und Personalauswahl (Anhang III Nr. 4)', begriffe: ['bewerb', 'recruit', 'personalauswahl', 'lebenslauf', 'cv-screening', 'befoerder', 'kuendig', 'leistungsbeurteil', 'mitarbeiterbewert', 'schichtzuteil'] },\n  { kategorie: 'Biometrie (Anhang III Nr. 1)', begriffe: ['biometr', 'gesichtserkenn', 'fingerabdruck', 'emotionserkenn', 'stimmerkennung'] },\n  { kategorie: 'Kreditwuerdigkeit und Versicherung (Anhang III Nr. 5)', begriffe: ['bonitaet', 'kreditwuerdig', 'scoring', 'schufa', 'risikopraemie', 'versicherungstarif'] },\n  { kategorie: 'Bildung und Pruefung (Anhang III Nr. 3)', begriffe: ['pruefungsbewert', 'noten', 'zulassung', 'ausbildungsplatz', 'lernstands'] },\n  { kategorie: 'Kritische Infrastruktur (Anhang III Nr. 2)', begriffe: ['stromnetz', 'wasserversorgung', 'verkehrssteuerung', 'kritische infrastruktur', 'gasnetz'] },\n  { kategorie: 'Zugang zu wesentlichen Diensten (Anhang III Nr. 5)', begriffe: ['sozialleistung', 'notruf', 'triage', 'anspruchspruefung'] },\n  { kategorie: 'Strafverfolgung und Migration (Anhang III Nr. 6 und 7)', begriffe: ['strafverfolg', 'polizei', 'asyl', 'migration', 'grenzkontrolle'] }\n];\n\nconst raus = [];\nfor (const eintrag of $input.all()) {\n  const f = eintrag.json || {};\n  const system = String(f['System / Anwendung'] || '').trim();\n  const zweck = String(f['Zweck / Einsatzbereich'] || '').trim();\n  const datenarten = String(f['Verarbeitete Datenarten'] || '').trim();\n  const suchtext = (system + ' ' + zweck + ' ' + datenarten).toLowerCase();\n\n  const treffer = anhangIII.filter(k => k.begriffe.some(b => suchtext.includes(b))).map(k => k.kategorie);\n\n  const entscheidungswirkung = String(f['Wirkt das System auf Entscheidungen ueber Menschen?'] || 'Unklar');\n  const sichtbarkeit = String(f['Ausgaben sind fuer Externe sichtbar?'] || 'Nein, nur intern');\n\n  // Externer Dialog oder nach aussen gehende KI-Inhalte loesen die\n  // Transparenzpflicht nach Art. 50 aus - das ist keine Ermessensfrage.\n  const transparenzrelevant = sichtbarkeit.startsWith('Ja');\n\n  const laufnummer = String(Date.now()).slice(-6);\n  raus.push({\n    json: {\n      meldung_id: 'KI-' + new Date().getFullYear() + '-' + laufnummer,\n      gemeldet_am: new Date().toLocaleDateString('de-DE'),\n      abteilung: String(f['Abteilung'] || '').trim(),\n      ansprechpartner: String(f['Ansprechpartner (E-Mail)'] || '').trim(),\n      system,\n      anbieter: String(f['Anbieter'] || '').trim(),\n      zweck,\n      datenarten,\n      betroffene: String(f['Betroffene Personengruppen'] || ''),\n      rechtsgrundlage: String(f['Rechtsgrundlage der Verarbeitung'] || ''),\n      entscheidungswirkung,\n      sichtbarkeit,\n      transparenzrelevant,\n      heuristik_anhang_iii: treffer.length > 0,\n      heuristik_kategorien: treffer.join('; '),\n      rechtsgrundlage_unklar: String(f['Rechtsgrundlage der Verarbeitung'] || '').startsWith('Unklar')\n    }\n  });\n}\nreturn raus;"
+      },
+      "id": "meldung-aufbereiten",
+      "name": "Meldung aufbereiten",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [620, 240]
+    },
+    {
+      "parameters": {
+        "modelId": {"__rl": true, "value": "gpt-4.1-mini", "mode": "list"},
+        "messages": {"values": [
+          {"role": "system", "content": "Du unterstuetzt die Compliance-Abteilung eines deutschen Unternehmens bei der Vorsortierung von KI-Systemen nach der Verordnung (EU) 2024/1689 (EU AI Act). Du erstellst einen begruendeten VORSCHLAG, keine verbindliche Einstufung. Antworte AUSSCHLIESSLICH mit einem JSON-Objekt.\n\nFelder:\n- risikoklasse (string): genau einer dieser Werte - verboten, hochrisiko_anhang_iii, transparenzpflicht_art_50, minimales_risiko\n- einschlaegige_kategorie (string): die konkrete Norm oder Anhang-Nummer, auf die du dich stuetzt, zum Beispiel Anhang III Nr. 4 lit. a oder Art. 50 Abs. 1. Wenn keine einschlaegig ist: keine\n- begruendung (string): zwei bis vier Saetze, die aus den gemeldeten Angaben ableiten, warum diese Klasse in Betracht kommt. Nenne die konkreten Angaben, auf die du dich stuetzt.\n- gegenargument (string): der plausibelste Grund, warum die Einstufung auch anders ausfallen koennte\n- sicherheit (string): hoch, mittel oder niedrig\n- pflichten (array aus strings): die daraus folgenden Pflichten in Stichpunkten, zum Beispiel Kennzeichnung KI-generierter Inhalte, Risikomanagementsystem, Protokollierung, menschliche Aufsicht, Konformitaetsbewertung\n- rueckfragen (array aus strings): was fuer eine belastbare Einstufung noch geklaert werden muss\n- frist_hinweis (string): welche Uebergangsfrist einschlaegig ist - Verbote und Art. 4 KI-Kompetenz seit 02.02.2025, Art. 50 und Anhang III seit 02.08.2026, Anhang I ab 02.08.2027\n\nRegeln: Ordne im Zweifel die strengere Klasse zu und setze sicherheit auf niedrig oder mittel. Erfinde keine Artikel oder Anhangsnummern. Gib keine Rechtsberatung und keine Entwarnung - deine Ausgabe ist eine Vorsortierung fuer die menschliche Pruefung."},
+          {"role": "user", "content": "=System: {{ $json.system }}\nAnbieter: {{ $json.anbieter }}\nAbteilung: {{ $json.abteilung }}\nZweck und Einsatzbereich: {{ $json.zweck }}\nVerarbeitete Datenarten: {{ $json.datenarten }}\nBetroffene Personengruppen: {{ $json.betroffene }}\nRechtsgrundlage: {{ $json.rechtsgrundlage }}\nWirkung auf Entscheidungen ueber Menschen: {{ $json.entscheidungswirkung }}\nSichtbarkeit der Ausgaben nach aussen: {{ $json.sichtbarkeit }}\nVorpruefung Stichworte Anhang III: {{ $json.heuristik_kategorien || 'kein Treffer' }}"}
+        ]},
+        "jsonOutput": true,
+        "options": {"temperature": 0}
+      },
+      "id": "ki-risikoklasse",
+      "name": "Risikoklasse vorschlagen",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [840, 240]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Der KI-Vorschlag wird hier nicht einfach uebernommen, sondern geprueft:\n// 1. Nur die vier zulaessigen Klassen sind erlaubt, alles andere wird zu\n//    unklar_manuelle_pruefung - eine halluzinierte Klasse darf nicht ins\n//    Inventar wandern.\n// 2. Wenn die eigene Stichwortpruefung Anhang III trifft, die KI aber\n//    harmloser einstuft, gewinnt die strengere Bewertung. Untertreiben ist\n//    hier das teurere Risiko.\n// 3. Externe KI-Ausgaben loesen die Transparenzpflicht nach Art. 50 aus,\n//    unabhaengig davon, was das Modell geantwortet hat.\nconst ERLAUBT = ['verboten', 'hochrisiko_anhang_iii', 'transparenzpflicht_art_50', 'minimales_risiko'];\nconst KLARTEXT = {\n  verboten: 'Verbotene Praktik (Art. 5) - Einsatz sofort stoppen',\n  hochrisiko_anhang_iii: 'Hochrisiko nach Anhang III',\n  transparenzpflicht_art_50: 'Transparenzpflicht nach Art. 50',\n  minimales_risiko: 'Minimales Risiko',\n  unklar_manuelle_pruefung: 'Unklar - manuelle Pruefung erforderlich'\n};\n\nconst meldung = $('Meldung aufbereiten').item.json;\nconst v = $input.first().json.message?.content ?? $input.first().json;\n\nlet klasse = String(v.risikoklasse || '').trim().toLowerCase();\nconst korrekturen = [];\nif (!ERLAUBT.includes(klasse)) {\n  korrekturen.push('KI lieferte eine unbekannte Klasse (' + (v.risikoklasse || 'leer') + ')');\n  klasse = 'unklar_manuelle_pruefung';\n}\n\nif (meldung.heuristik_anhang_iii && klasse !== 'verboten' && klasse !== 'hochrisiko_anhang_iii') {\n  korrekturen.push('Stichwortpruefung deutet auf Anhang III hin (' + meldung.heuristik_kategorien + '), Vorschlag wurde hochgestuft');\n  klasse = 'hochrisiko_anhang_iii';\n}\n\nif (meldung.transparenzrelevant && klasse === 'minimales_risiko') {\n  korrekturen.push('Ausgaben sind fuer Externe sichtbar - Transparenzpflicht nach Art. 50 greift zusaetzlich');\n  klasse = 'transparenzpflicht_art_50';\n}\n\nconst pflichten = Array.isArray(v.pflichten) ? v.pflichten.slice() : [];\nif (meldung.transparenzrelevant && !pflichten.some(p => /kennzeich|transparenz/i.test(String(p)))) {\n  pflichten.push('KI-generierte Inhalte bzw. den KI-Einsatz gegenueber Betroffenen kennzeichnen (Art. 50)');\n}\npflichten.push('Ausreichende KI-Kompetenz der nutzenden Personen sicherstellen (Art. 4, gilt seit 02.02.2025)');\n\nconst rueckfragen = Array.isArray(v.rueckfragen) ? v.rueckfragen.slice() : [];\nif (meldung.rechtsgrundlage_unklar) rueckfragen.push('Rechtsgrundlage der Datenverarbeitung ist ungeklaert - mit dem Datenschutzbeauftragten abstimmen');\nif (String(meldung.entscheidungswirkung).startsWith('Unklar')) rueckfragen.push('Entscheidungswirkung auf Personen ist ungeklaert - Prozess mit der Fachabteilung durchgehen');\n\nconst sofort_melden = ['verboten', 'hochrisiko_anhang_iii', 'unklar_manuelle_pruefung'].includes(klasse);\n\nreturn [{\n  json: {\n    ...meldung,\n    risikoklasse: klasse,\n    risikoklasse_klartext: KLARTEXT[klasse],\n    einschlaegige_kategorie: v.einschlaegige_kategorie || 'keine',\n    begruendung: v.begruendung || '',\n    gegenargument: v.gegenargument || '',\n    sicherheit: v.sicherheit || 'niedrig',\n    pflichten: pflichten.join(' | '),\n    rueckfragen: rueckfragen.join(' | '),\n    frist_hinweis: v.frist_hinweis || 'Art. 4 und Art. 5 seit 02.02.2025, Art. 50 und Anhang III seit 02.08.2026, Anhang I ab 02.08.2027',\n    automatische_korrekturen: korrekturen.join(' | '),\n    pruefstatus: 'Vorschlag - menschliche Pruefung offen',\n    sofort_melden\n  }\n}];"
+      },
+      "id": "vorschlag-pruefen",
+      "name": "Vorschlag einordnen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1060, 240]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {"__rl": true, "value": "HIER_SHEET_ID_EINTRAGEN", "mode": "id"},
+        "sheetName": {"__rl": true, "value": "KI-Inventar", "mode": "name"},
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Meldung-ID": "={{ $json.meldung_id }}",
+            "Gemeldet am": "={{ $json.gemeldet_am }}",
+            "Abteilung": "={{ $json.abteilung }}",
+            "Ansprechpartner": "={{ $json.ansprechpartner }}",
+            "System": "={{ $json.system }}",
+            "Anbieter": "={{ $json.anbieter }}",
+            "Zweck": "={{ $json.zweck }}",
+            "Datenarten": "={{ $json.datenarten }}",
+            "Betroffene": "={{ $json.betroffene }}",
+            "Rechtsgrundlage": "={{ $json.rechtsgrundlage }}",
+            "Risikoklasse (Vorschlag)": "={{ $json.risikoklasse_klartext }}",
+            "Einschlaegige Kategorie": "={{ $json.einschlaegige_kategorie }}",
+            "Begruendung": "={{ $json.begruendung }}",
+            "Gegenargument": "={{ $json.gegenargument }}",
+            "Sicherheit der Einschaetzung": "={{ $json.sicherheit }}",
+            "Pflichten": "={{ $json.pflichten }}",
+            "Offene Fragen": "={{ $json.rueckfragen }}",
+            "Automatische Korrekturen": "={{ $json.automatische_korrekturen }}",
+            "Fristen": "={{ $json.frist_hinweis }}",
+            "Pruefstatus": "={{ $json.pruefstatus }}",
+            "Geprueft von": "",
+            "Geprueft am": ""
+          }
+        },
+        "options": {}
+      },
+      "id": "sheet-inventar",
+      "name": "Ins KI-Inventar eintragen",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1280, 240]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {"caseSensitive": true, "version": 2},
+          "conditions": [{
+            "id": "eskalation",
+            "leftValue": "={{ $json.sofort_melden }}",
+            "rightValue": true,
+            "operator": {"type": "boolean", "operation": "true", "singleValue": true}
+          }],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "weiche-eskalation",
+      "name": "Hochrisiko oder unklar?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1500, 240]
+    },
+    {
+      "parameters": {
+        "fromEmail": "HIER_ABSENDER_EMAIL_EINTRAGEN",
+        "toEmail": "HIER_EMAIL_GESCHAEFTSFUEHRUNG_EINTRAGEN",
+        "ccEmail": "HIER_EMAIL_DATENSCHUTZBEAUFTRAGTER_EINTRAGEN",
+        "subject": "=Pruefung erforderlich: KI-System {{ $json.system }} ({{ $json.risikoklasse_klartext }})",
+        "emailFormat": "text",
+        "text": "=Es wurde ein KI-System gemeldet, das eine Pruefung durch die Geschaeftsfuehrung erfordert.\n\nMeldung-ID: {{ $json.meldung_id }}\nGemeldet am: {{ $json.gemeldet_am }} von {{ $json.abteilung }} ({{ $json.ansprechpartner }})\n\nSystem: {{ $json.system }}\nAnbieter: {{ $json.anbieter }}\nZweck: {{ $json.zweck }}\nDatenarten: {{ $json.datenarten }}\nBetroffene: {{ $json.betroffene }}\nRechtsgrundlage: {{ $json.rechtsgrundlage }}\n\nVORSCHLAG der automatischen Vorpruefung: {{ $json.risikoklasse_klartext }}\nEinschlaegige Kategorie: {{ $json.einschlaegige_kategorie }}\nSicherheit der Einschaetzung: {{ $json.sicherheit }}\n\nBegruendung:\n{{ $json.begruendung }}\n\nGegenargument:\n{{ $json.gegenargument }}\n\nDaraus folgende Pflichten:\n{{ $json.pflichten }}\n\nOffene Fragen:\n{{ $json.rueckfragen }}\n\nAutomatische Korrekturen am KI-Vorschlag:\n{{ $json.automatische_korrekturen || 'keine' }}\n\nFristen: {{ $json.frist_hinweis }}\n\nWICHTIG: Das ist ein maschinell erzeugter Vorschlag und keine Einstufung. Die verbindliche Einordnung nach EU AI Act muss ein Mensch vornehmen und im Inventar-Sheet dokumentieren (Spalten Pruefstatus, Geprueft von, Geprueft am). Der Workflow ersetzt keine Rechtsberatung.\n\nErstellt automatisch von n8n.",
+        "options": {}
+      },
+      "id": "mail-gf",
+      "name": "Geschaeftsfuehrung informieren",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [1720, 140]
+    },
+    {
+      "parameters": {
+        "assignments": {"assignments": [
+          {"id": "status", "name": "weiteres_vorgehen", "value": "Kein Sofort-Eskalationsfall. Eintrag bleibt im Inventar und wird in der naechsten turnusmaessigen Pruefung bestaetigt.", "type": "string"},
+          {"id": "frist", "name": "naechste_pruefung", "value": "={{ new Date(Date.now() + 365*24*60*60*1000).toLocaleDateString('de-DE') }}", "type": "string"},
+          {"id": "hinweis", "name": "pruefhinweis", "value": "={{ 'Vorschlag ' + $json.risikoklasse_klartext + ' - Bestaetigung durch die verantwortliche Person steht aus.' }}", "type": "string"}
+        ]},
+        "options": {}
+      },
+      "id": "regulaer",
+      "name": "Zur turnusmaessigen Pruefung",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1720, 360]
+    }
+  ],
+  "connections": {
+    "Meldeformular KI-System": {"main": [[{"node": "Meldung aufbereiten", "type": "main", "index": 0}]]},
+    "Meldung aufbereiten": {"main": [[{"node": "Risikoklasse vorschlagen", "type": "main", "index": 0}]]},
+    "Risikoklasse vorschlagen": {"main": [[{"node": "Vorschlag einordnen", "type": "main", "index": 0}]]},
+    "Vorschlag einordnen": {"main": [[{"node": "Ins KI-Inventar eintragen", "type": "main", "index": 0}]]},
+    "Ins KI-Inventar eintragen": {"main": [[{"node": "Hochrisiko oder unklar?", "type": "main", "index": 0}]]},
+    "Hochrisiko oder unklar?": {"main": [[{"node": "Geschaeftsfuehrung informieren", "type": "main", "index": 0}], [{"node": "Zur turnusmaessigen Pruefung", "type": "main", "index": 0}]]}
+  },
+  "settings": {"executionOrder": "v1"},
+  "pinData": {}
+}

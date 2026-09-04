@@ -1,0 +1,213 @@
+{
+  "name": "Offene Angebote gestaffelt nachfassen",
+  "meta": {
+    "beschreibung": "Prueft jeden Morgen die offenen Angebote in einer Google-Sheets-Liste, berechnet ihr Alter und faellt daraus die Nachfassentscheidung: nach 3 Tagen eine freundliche Erinnerung, nach 10 Tagen eine zweite Nachfrage, nach 21 Tagen ein internes Signal an den Vertrieb statt einer weiteren Mail. Die Texte schreibt die KI sachlich und ohne Verkaufsdruck; die erreichte Stufe wird ins Sheet zurueckgeschrieben, damit kein Kunde zweimal dieselbe Mail bekommt. Lohnt sich fuer Handwerk, Agenturen und Maschinenbau, wo Angebote regelmaessig unbeantwortet liegen bleiben. DSGVO/EU-AI-Act-Hinweis: Kundendaten gehen an den KI-Anbieter — AV-Vertrag nach Art. 28 DSGVO schliessen oder ein lokales Modell (Ollama) nutzen; die Mails werden vom Vertrieb verantwortet und sollten vor dem Scharfschalten stichprobenartig gelesen werden.",
+    "kategorie": "Vertrieb & Leads",
+    "schwierigkeit": "mittel",
+    "benoetigt": ["Google Sheets", "OpenAI-API (oder Ollama)", "SMTP-Postfach"],
+    "quelle": "https://die-ki-agentur.de/n8n-agentur/"
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Angebote automatisch nachfassen\n\n**Ablauf:** taeglich 08:00 → offene Angebote aus Google Sheets → Alter in Tagen berechnen → Staffelung 3 / 10 / 21 Tage → KI schreibt die Mail (sachlich, kein Druck) → versenden → Stufe ins Sheet zurueckschreiben.\n\n**Spalten im Sheet (genau so benennen):**\n`Angebotsnummer` · `Kunde` · `Ansprechpartner` · `E-Mail` · `Angebotsdatum` (TT.MM.JJJJ) · `Betrag` (EUR) · `Leistung` · `Status` (offen/angenommen/abgelehnt) · `Nachfassstufe` (Zahl, leer = 0) · `Letzte Nachfassung`\n\n**Vor dem Start:**\n1. `HIER_SHEET_ID_EINTRAGEN` in beiden Google-Sheets-Nodes ersetzen und das Tabellenblatt `Angebote` anlegen\n2. Google-Sheets-Credential waehlen (Schreibrechte noetig — der Workflow aktualisiert die Spalte `Nachfassstufe`)\n3. OpenAI-Credential waehlen oder auf ein lokales Modell umstellen\n4. Absender, Signatur und Vertriebsadresse in den Mail-Nodes eintragen\n5. Erste Woche im Testmodus laufen lassen und die generierten Texte lesen\n\n**Warum keine Doppelmails:** Der Code vergleicht das Alter mit der bereits erreichten `Nachfassstufe`. Eskaliert wird nur, wenn die neue Stufe hoeher ist — sonst wird die Zeile uebersprungen.\n\n**Betreuung:** https://die-ki-agentur.de/n8n-agentur/",
+        "height": 640,
+        "width": 480
+      },
+      "id": "note-doku",
+      "name": "Kurzanleitung",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-160, 20]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {"field": "days", "triggerAtHour": 8, "triggerAtMinute": 0}
+          ]
+        }
+      },
+      "id": "trigger-zeitplan",
+      "name": "Taeglich um 08:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [380, 320]
+    },
+    {
+      "parameters": {
+        "documentId": {"__rl": true, "value": "HIER_SHEET_ID_EINTRAGEN", "mode": "id"},
+        "sheetName": {"__rl": true, "value": "Angebote", "mode": "name"},
+        "options": {}
+      },
+      "id": "sheets-lesen",
+      "name": "Offene Angebote lesen",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [600, 320]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Bestimmt fuer jede Zeile das Angebotsalter und daraus die faellige\n// Nachfassstufe. Entscheidend ist der Vergleich mit der bereits erreichten\n// Stufe im Sheet: ohne ihn wuerde derselbe Kunde ab Tag 3 jeden Morgen\n// dieselbe Erinnerung bekommen - der sicherste Weg, einen Auftrag zu\n// verlieren.\nconst heute = new Date();\nconst raus = [];\n\nfor (const eintrag of $input.all()) {\n  const z = eintrag.json;\n  const status = String(z['Status'] ?? '').trim().toLowerCase();\n\n  // Nur offene Angebote. Alles andere (angenommen, abgelehnt, storniert)\n  // wird stillschweigend uebersprungen statt angeschrieben.\n  if (status && !['offen', 'versendet', 'verschickt'].includes(status)) continue;\n\n  const rohdatum = String(z['Angebotsdatum'] ?? '').trim();\n  if (!rohdatum) continue;\n\n  // Sheets liefert deutsche Datumsangaben als Text. new Date('05.09.2026')\n  // liest das als Mai oder gar nicht - deshalb selbst zerlegen.\n  const teile = rohdatum.match(/^(\\d{1,2})\\.(\\d{1,2})\\.(\\d{4})$/);\n  const datum = teile\n    ? new Date(Number(teile[3]), Number(teile[2]) - 1, Number(teile[1]))\n    : new Date(rohdatum);\n  if (Number.isNaN(datum.getTime())) continue;   // unbrauchbare Zeile lieber auslassen als raten\n\n  const tage = Math.floor((heute - datum) / 86400000);\n  const bisher = Number(z['Nachfassstufe'] ?? 0) || 0;\n\n  let stufe = 'keine';\n  let neueStufe = bisher;\n  if (tage >= 21 && bisher < 3) { stufe = 'intern'; neueStufe = 3; }\n  else if (tage >= 10 && bisher < 2) { stufe = 'zweite'; neueStufe = 2; }\n  else if (tage >= 3 && bisher < 1) { stufe = 'erinnerung'; neueStufe = 1; }\n\n  if (stufe === 'keine') continue;\n\n  // Ohne Empfaengeradresse kann nur intern eskaliert werden.\n  const email = String(z['E-Mail'] ?? '').trim();\n  if (!email && stufe !== 'intern') { stufe = 'intern'; neueStufe = 3; }\n\n  raus.push({\n    json: {\n      angebotsnummer: String(z['Angebotsnummer'] ?? '').trim(),\n      kunde: String(z['Kunde'] ?? '').trim(),\n      ansprechpartner: String(z['Ansprechpartner'] ?? '').trim(),\n      email,\n      angebotsdatum: rohdatum,\n      betrag: String(z['Betrag'] ?? '').trim(),\n      leistung: String(z['Leistung'] ?? '').trim(),\n      tage_offen: tage,\n      stufe,\n      bisherige_stufe: bisher,\n      neue_nachfassstufe: neueStufe,\n      heute: heute.toLocaleDateString('de-DE')\n    }\n  });\n}\n\nreturn raus;"
+      },
+      "id": "code-alter",
+      "name": "Alter und Nachfassstufe bestimmen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [820, 320]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {"caseSensitive": true, "version": 2},
+                "conditions": [
+                  {"id": "r1", "leftValue": "={{ $json.stufe }}", "rightValue": "erinnerung", "operator": {"type": "string", "operation": "equals"}}
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Erinnerung ab 3 Tagen"
+            },
+            {
+              "conditions": {
+                "options": {"caseSensitive": true, "version": 2},
+                "conditions": [
+                  {"id": "r2", "leftValue": "={{ $json.stufe }}", "rightValue": "zweite", "operator": {"type": "string", "operation": "equals"}}
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Zweite Nachfrage ab 10 Tagen"
+            },
+            {
+              "conditions": {
+                "options": {"caseSensitive": true, "version": 2},
+                "conditions": [
+                  {"id": "r3", "leftValue": "={{ $json.stufe }}", "rightValue": "intern", "operator": {"type": "string", "operation": "equals"}}
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Internes Signal ab 21 Tagen"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "switch-stufe",
+      "name": "Nachfassstufe verteilen",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [1040, 320]
+    },
+    {
+      "parameters": {
+        "modelId": {"__rl": true, "value": "gpt-4.1-mini", "mode": "list"},
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "Du schreibst kurze deutsche Nachfassmails fuer einen mittelstaendischen Betrieb. Ton: sachlich, hoeflich, auf Augenhoehe. Kein Verkaufsdruck, keine kuenstliche Dringlichkeit, keine Rabatte, keine Superlative, keine Emojis, keine Floskeln wie 'Ich wollte mich nur kurz melden'. Der Kunde soll sich erinnert, nicht bedraengt fuehlen. Biete an, Rueckfragen zum Angebot zu klaeren, und akzeptiere ausdruecklich auch eine Absage als Antwort. Anrede mit 'Sie'. Laenge: 90 bis 140 Woerter. Antworte AUSSCHLIESSLICH mit einem JSON-Objekt, keine Erklaerung, kein Markdown. Felder: betreff (string, ohne 'Re:', maximal 60 Zeichen), text (string, komplette Mail ohne Grussformel am Ende und ohne Signatur). Erfinde keine Details, die nicht in den Angaben stehen."
+            },
+            {
+              "role": "user",
+              "content": "=Stufe: {{ $json.stufe === 'zweite' ? 'zweite und letzte Nachfrage - erwaehne, dass dies die letzte Nachfrage ist und der Kunde sich jederzeit melden kann' : 'erste freundliche Erinnerung' }}\nAngebotsnummer: {{ $json.angebotsnummer }}\nKunde: {{ $json.kunde }}\nAnsprechpartner: {{ $json.ansprechpartner || 'nicht bekannt, dann neutral \"Sehr geehrte Damen und Herren\"' }}\nAngebotsdatum: {{ $json.angebotsdatum }}\nSeit dem Angebot vergangene Tage: {{ $json.tage_offen }}\nLeistung: {{ $json.leistung }}\nBetrag: {{ $json.betrag }} EUR"
+            }
+          ]
+        },
+        "jsonOutput": true,
+        "options": {"temperature": 0.3}
+      },
+      "id": "ki-mailtext",
+      "name": "Nachfassmail texten",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [1260, 180]
+    },
+    {
+      "parameters": {
+        "fromEmail": "HIER_ABSENDER_MAIL_EINTRAGEN",
+        "toEmail": "={{ $('Alter und Nachfassstufe bestimmen').item.json.email }}",
+        "subject": "={{ ($json.message?.content ?? $json).betreff }} (Angebot {{ $('Alter und Nachfassstufe bestimmen').item.json.angebotsnummer }})",
+        "emailFormat": "text",
+        "text": "={{ ($json.message?.content ?? $json).text }}\n\nFreundliche Gruesse\nHIER_ABSENDERNAME_EINTRAGEN\nHIER_FIRMA_UND_KONTAKT_EINTRAGEN",
+        "options": {}
+      },
+      "id": "mail-nachfassen",
+      "name": "Nachfassmail versenden",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [1480, 180]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {"id": "hinweis", "name": "internes_signal", "value": "=Angebot {{ $json.angebotsnummer }} ist seit {{ $json.tage_offen }} Tagen ohne Rueckmeldung. Zwei schriftliche Nachfassungen sind raus — weitere Mails bringen erfahrungsgemaess nichts.", "type": "string"},
+            {"id": "empfehlung", "name": "empfehlung", "value": "Persoenlich anrufen oder das Angebot im CRM auf 'verloren' setzen. Keine dritte Mail.", "type": "string"}
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "set-intern",
+      "name": "Internes Signal aufbereiten",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1260, 480]
+    },
+    {
+      "parameters": {
+        "fromEmail": "HIER_ABSENDER_MAIL_EINTRAGEN",
+        "toEmail": "HIER_VERTRIEB_MAIL_EINTRAGEN",
+        "subject": "=Angebot {{ $json.angebotsnummer }} seit {{ $json.tage_offen }} Tagen offen — bitte entscheiden",
+        "emailFormat": "text",
+        "text": "={{ $json.internes_signal }}\n\nKunde: {{ $json.kunde }}\nAnsprechpartner: {{ $json.ansprechpartner || '-' }}\nE-Mail: {{ $json.email || '-' }}\nAngebotsdatum: {{ $json.angebotsdatum }}\nBetrag: {{ $json.betrag }} EUR\nLeistung: {{ $json.leistung }}\n\nEmpfehlung: {{ $json.empfehlung }}",
+        "options": {}
+      },
+      "id": "mail-intern",
+      "name": "Vertrieb intern informieren",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [1480, 480]
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {"__rl": true, "value": "HIER_SHEET_ID_EINTRAGEN", "mode": "id"},
+        "sheetName": {"__rl": true, "value": "Angebote", "mode": "name"},
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": ["Angebotsnummer"],
+          "value": {
+            "Angebotsnummer": "={{ $('Alter und Nachfassstufe bestimmen').item.json.angebotsnummer }}",
+            "Nachfassstufe": "={{ $('Alter und Nachfassstufe bestimmen').item.json.neue_nachfassstufe }}",
+            "Letzte Nachfassung": "={{ $('Alter und Nachfassstufe bestimmen').item.json.heute }}",
+            "Status": "={{ $('Alter und Nachfassstufe bestimmen').item.json.stufe === 'intern' ? 'offen - zur Entscheidung' : 'offen - nachgefasst' }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "sheets-zurueckschreiben",
+      "name": "Status im Sheet zurueckschreiben",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1700, 320]
+    }
+  ],
+  "connections": {
+    "Taeglich um 08:00": {"main": [[{"node": "Offene Angebote lesen", "type": "main", "index": 0}]]},
+    "Offene Angebote lesen": {"main": [[{"node": "Alter und Nachfassstufe bestimmen", "type": "main", "index": 0}]]},
+    "Alter und Nachfassstufe bestimmen": {"main": [[{"node": "Nachfassstufe verteilen", "type": "main", "index": 0}]]},
+    "Nachfassstufe verteilen": {"main": [[{"node": "Nachfassmail texten", "type": "main", "index": 0}], [{"node": "Nachfassmail texten", "type": "main", "index": 0}], [{"node": "Internes Signal aufbereiten", "type": "main", "index": 0}]]},
+    "Nachfassmail texten": {"main": [[{"node": "Nachfassmail versenden", "type": "main", "index": 0}]]},
+    "Nachfassmail versenden": {"main": [[{"node": "Status im Sheet zurueckschreiben", "type": "main", "index": 0}]]},
+    "Internes Signal aufbereiten": {"main": [[{"node": "Vertrieb intern informieren", "type": "main", "index": 0}]]},
+    "Vertrieb intern informieren": {"main": [[{"node": "Status im Sheet zurueckschreiben", "type": "main", "index": 0}]]}
+  },
+  "settings": {"executionOrder": "v1"},
+  "pinData": {}
+}

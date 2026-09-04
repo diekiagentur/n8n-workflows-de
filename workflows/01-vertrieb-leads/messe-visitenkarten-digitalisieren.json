@@ -1,0 +1,232 @@
+{
+  "name": "Messe-Visitenkarten per Foto digitalisieren",
+  "meta": {
+    "beschreibung": "Der Aussendienst fotografiert eine Visitenkarte und laedt sie ueber ein n8n-Formular hoch; die KI liest Name, Firma, Position, E-Mail und Telefon aus dem Bild, eine Plausibilitaetspruefung kontrolliert Mailformat und Telefonnummer, und der Kontakt landet mitsamt Messe- und Gespraechsnotiz im CRM. Anschliessend geht eine kurze Dankes-Mail an den Kontakt. Lohnt sich fuer jeden Betrieb, bei dem nach einer Messe ein Stapel Karten liegen bleibt. DSGVO-Hinweis: Eine Visitenkarte allein ist keine Einwilligung in Werbung — das Formular fragt die im Gespraech erteilte Einwilligung zur Kontaktaufnahme ausdruecklich ab und verwirft die Karte ohne sie; ausserdem AV-Vertrag nach Art. 28 DSGVO mit dem KI-Anbieter (oder lokales Vision-Modell) und Information nach Art. 13 DSGVO in der Dankes-Mail.",
+    "kategorie": "Vertrieb & Leads",
+    "schwierigkeit": "mittel",
+    "benoetigt": ["OpenAI-API mit Vision (oder lokales Vision-Modell)", "CRM mit REST-API", "SMTP-Postfach"],
+    "quelle": "https://die-ki-agentur.de/n8n-agentur/"
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Visitenkarten vom Messestand ins CRM\n\n**Ablauf:** Formular mit Foto-Upload → Einwilligung pruefen → KI liest die Karte (Vision) → Felder strukturieren → Plausibilitaetspruefung (Mailformat, Telefon) → CRM → Dankes-Mail.\n\n**Vor dem Start:**\n1. Formular-URL aus `Visitenkarte hochladen` auf dem Diensthandy als Lesezeichen ablegen\n2. OpenAI-Credential mit Vision-Modell waehlen — oder auf ein lokales Modell umstellen, dann bleiben die Fotos im Haus\n3. In `Kontakt im CRM anlegen` `HIER_CRM_API_URL` und `HIER_CRM_API_KEY_EINTRAGEN` ersetzen\n4. Absenderadresse und Signatur in der Dankes-Mail eintragen\n5. Binary-Feldname pruefen: n8n benennt die hochgeladene Datei nach dem Formularfeld. Steht in `Visitenkarte auslesen` ein anderer Name als `Visitenkarte`, dort anpassen (einmal testen und im Ausgabefenster nachsehen)\n\n**DSGVO:** Die uebergebene Visitenkarte ist noch keine Einwilligung in Werbung. Das Formularfeld `Einwilligung Kontaktaufnahme` haelt fest, was im Gespraech besprochen wurde; ohne `Ja` wird der Datensatz nicht ins CRM uebernommen. Die Dankes-Mail enthaelt den Hinweis nach Art. 13 DSGVO.\n\n**Betreuung:** https://die-ki-agentur.de/n8n-agentur/",
+        "height": 640,
+        "width": 480
+      },
+      "id": "note-doku",
+      "name": "Kurzanleitung",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-180, 20]
+    },
+    {
+      "parameters": {
+        "path": "messe-visitenkarte",
+        "formTitle": "Visitenkarte erfassen",
+        "formDescription": "Karte fotografieren, Messe und Gespraechsnotiz ergaenzen. Der Kontakt wird nur ins CRM uebernommen, wenn die Einwilligung zur Kontaktaufnahme im Gespraech erteilt wurde.",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Visitenkarte",
+              "fieldType": "file",
+              "acceptFileTypes": ".jpg,.jpeg,.png,.heic",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Messe",
+              "fieldType": "text",
+              "placeholder": "z. B. Hannover Messe 2026",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Gespraechsnotiz",
+              "fieldType": "textarea",
+              "placeholder": "Worum ging es? Was war der naechste Schritt?"
+            },
+            {
+              "fieldLabel": "Einwilligung Kontaktaufnahme",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {"option": "Ja, im Gespraech ausdruecklich zugesagt"},
+                  {"option": "Nein bzw. unklar"}
+                ]
+              },
+              "requiredField": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "trigger-formular",
+      "name": "Visitenkarte hochladen",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
+      "position": [380, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {"caseSensitive": false, "version": 2},
+          "conditions": [
+            {
+              "id": "einwilligung",
+              "leftValue": "={{ $json['Einwilligung Kontaktaufnahme'] }}",
+              "rightValue": "Ja",
+              "operator": {"type": "string", "operation": "startsWith"}
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-einwilligung",
+      "name": "Einwilligung erteilt?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [600, 300]
+    },
+    {
+      "parameters": {
+        "resource": "image",
+        "operation": "analyze",
+        "modelId": {"__rl": true, "value": "gpt-4.1-mini", "mode": "list"},
+        "text": "Lies diese Visitenkarte aus. Antworte AUSSCHLIESSLICH mit einem JSON-Objekt, keine Erklaerung, kein Markdown, keine Code-Zaeune. Felder: vorname (string), nachname (string), position (string), firma (string), email (string), telefon (string), mobil (string), strasse (string), plz (string), ort (string), webseite (string). Nicht lesbare oder nicht vorhandene Felder auf null setzen. Rate nichts hinzu und ergaenze keine Angaben aus Allgemeinwissen. Deutsche Telefonnummern im Format +49XXXXXXXXX zurueckgeben, Leerzeichen und Bindestriche entfernen. Bei einer Durchwahl und einer Zentrale die Durchwahl nehmen.",
+        "inputType": "base64",
+        "binaryPropertyName": "Visitenkarte",
+        "options": {"detail": "high"}
+      },
+      "id": "ki-vision",
+      "name": "Visitenkarte auslesen",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [820, 180]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Der Vision-Node liefert Freitext, kein garantiertes JSON. Modelle packen\n// die Antwort gern in ```json-Zaeune oder stellen einen Satz voran - deshalb\n// wird hier der erste geschweifte Block herausgeschnitten, statt blind\n// JSON.parse aufzurufen und den Lauf abstuerzen zu lassen.\nconst raus = [];\nfor (const eintrag of $input.all()) {\n  const roh = eintrag.json.content ?? eintrag.json.text ?? eintrag.json.message?.content ?? '';\n  const inhalt = typeof roh === 'string' ? roh : JSON.stringify(roh);\n\n  let karte = {};\n  let gelesen = true;\n  try {\n    const start = inhalt.indexOf('{');\n    const ende = inhalt.lastIndexOf('}');\n    karte = start >= 0 && ende > start ? JSON.parse(inhalt.slice(start, ende + 1)) : {};\n    if (!Object.keys(karte).length) gelesen = false;\n  } catch (e) {\n    gelesen = false;\n  }\n\n  const formular = $('Visitenkarte hochladen').item.json;\n  const leer = (w) => (w === null || w === undefined || String(w).trim() === '' || String(w).trim().toLowerCase() === 'null') ? '' : String(w).trim();\n\n  raus.push({\n    json: {\n      vorname: leer(karte.vorname),\n      nachname: leer(karte.nachname),\n      position: leer(karte.position),\n      firma: leer(karte.firma),\n      email: leer(karte.email).toLowerCase(),\n      telefon: leer(karte.telefon),\n      mobil: leer(karte.mobil),\n      strasse: leer(karte.strasse),\n      plz: leer(karte.plz),\n      ort: leer(karte.ort),\n      webseite: leer(karte.webseite),\n      messe: leer(formular['Messe']),\n      gespraechsnotiz: leer(formular['Gespraechsnotiz']),\n      einwilligung: leer(formular['Einwilligung Kontaktaufnahme']),\n      erfasst_am: new Date().toLocaleDateString('de-DE'),\n      ki_antwort_lesbar: gelesen,\n      rohantwort: gelesen ? '' : inhalt.slice(0, 500)\n    }\n  });\n}\nreturn raus;"
+      },
+      "id": "code-strukturieren",
+      "name": "Felder strukturieren",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1040, 180]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Plausibilitaetspruefung, bevor Muell ins CRM wandert. OCR auf Fotos\n// verwechselt regelmaessig 0/O, 1/l und rn/m - eine Adresse wie\n// \"info@rnueller.de\" sieht auf dem Bild richtig aus und ist es nicht.\n// Deshalb wird hier nicht korrigiert, sondern markiert: lieber 20 Karten\n// automatisch und 3 von Hand als 23 halbfalsche Datensaetze.\nconst raus = [];\nfor (const eintrag of $input.all()) {\n  const k = { ...eintrag.json };\n  const maengel = [];\n\n  // Bewusst grober Formcheck - eine strenge RFC-Regex verwirft mehr\n  // gueltige Adressen als sie Lesefehler faengt.\n  const mailOk = /^[^@\\s]+@[^@\\s]+\\.[a-zA-Z]{2,}$/.test(k.email);\n  if (!k.email) maengel.push('keine E-Mail erkannt');\n  else if (!mailOk) maengel.push('E-Mail-Format unplausibel: ' + k.email);\n\n  // Telefon auf Ziffern reduzieren und deutsche Schreibweisen (0711...,\n  // 0049..., +49...) auf ein einheitliches Format bringen.\n  const normalisiere = (nr) => {\n    let z = String(nr).replace(/[^0-9+]/g, '');\n    if (!z) return '';\n    if (z.startsWith('00')) z = '+' + z.slice(2);\n    else if (z.startsWith('0')) z = '+49' + z.slice(1);\n    else if (!z.startsWith('+')) z = '+49' + z;\n    return z;\n  };\n  k.telefon = normalisiere(k.telefon);\n  k.mobil = normalisiere(k.mobil);\n\n  // Ziffernzahl ohne Laendervorwahl: unter 6 ist keine erreichbare Nummer,\n  // ueber 15 verstoesst gegen E.164 - beides deutet auf einen Lesefehler.\n  const ziffern = (nr) => nr.replace(/\\D/g, '').length;\n  if (k.telefon && (ziffern(k.telefon) < 8 || ziffern(k.telefon) > 15)) {\n    maengel.push('Telefonnummer unplausibel: ' + k.telefon);\n    k.telefon = '';\n  }\n  if (k.mobil && (ziffern(k.mobil) < 8 || ziffern(k.mobil) > 15)) {\n    maengel.push('Mobilnummer unplausibel: ' + k.mobil);\n    k.mobil = '';\n  }\n\n  if (!k.nachname) maengel.push('kein Nachname erkannt');\n  if (!k.firma) maengel.push('keine Firma erkannt');\n  if (!k.ki_antwort_lesbar) maengel.push('KI-Antwort war kein verwertbares JSON');\n\n  k.name_komplett = [k.vorname, k.nachname].filter(Boolean).join(' ');\n  k.maengel = maengel;\n  // Fuer die automatische Uebernahme muessen Nachname und eine gueltige\n  // Mailadresse stehen - ohne beides waere weder CRM-Eintrag noch\n  // Dankes-Mail moeglich.\n  k.verwertbar = Boolean(k.nachname) && mailOk;\n  raus.push({ json: k });\n}\nreturn raus;"
+      },
+      "id": "code-plausibilitaet",
+      "name": "Plausibilitaet pruefen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1260, 180]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {"caseSensitive": true, "version": 2},
+          "conditions": [
+            {
+              "id": "verwertbar",
+              "leftValue": "={{ $json.verwertbar }}",
+              "rightValue": true,
+              "operator": {"type": "boolean", "operation": "true", "singleValue": true}
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-verwertbar",
+      "name": "Daten verwertbar?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1480, 180]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://HIER_CRM_API_URL/v1/kontakte",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {"name": "X-Api-Key", "value": "HIER_CRM_API_KEY_EINTRAGEN"},
+            {"name": "Content-Type", "value": "application/json"}
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  vorname: $json.vorname,\n  nachname: $json.nachname,\n  position: $json.position,\n  firma: $json.firma,\n  email: $json.email,\n  telefon: $json.telefon,\n  mobil: $json.mobil,\n  strasse: $json.strasse,\n  plz: $json.plz,\n  ort: $json.ort,\n  webseite: $json.webseite,\n  quelle: 'Messe: ' + $json.messe,\n  notiz: $json.gespraechsnotiz,\n  einwilligung_kontaktaufnahme: $json.einwilligung,\n  erfasst_am: $json.erfasst_am,\n  erfassungsweg: 'Visitenkarten-Foto, KI-gestuetzt ausgelesen'\n}) }}",
+        "options": {"timeout": 15000}
+      },
+      "id": "http-crm",
+      "name": "Kontakt im CRM anlegen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1700, 80]
+    },
+    {
+      "parameters": {
+        "fromEmail": "HIER_ABSENDER_MAIL_EINTRAGEN",
+        "toEmail": "={{ $('Plausibilitaet pruefen').item.json.email }}",
+        "subject": "=Danke fuer das Gespraech auf der {{ $('Plausibilitaet pruefen').item.json.messe }}",
+        "emailFormat": "text",
+        "text": "=Guten Tag {{ $('Plausibilitaet pruefen').item.json.name_komplett }},\n\nvielen Dank fuer das Gespraech an unserem Stand auf der {{ $('Plausibilitaet pruefen').item.json.messe }}. Wir haben Ihre Karte aufgenommen und melden uns wie besprochen.\n\nFalls Sie vorher etwas brauchen, antworten Sie einfach auf diese Mail.\n\nFreundliche Gruesse\nHIER_ABSENDERNAME_EINTRAGEN\nHIER_FIRMA_UND_KONTAKT_EINTRAGEN\n\n--\nWir haben Ihre Kontaktdaten von der uns am {{ $('Plausibilitaet pruefen').item.json.erfasst_am }} uebergebenen Visitenkarte erfasst und nutzen sie ausschliesslich fuer die besprochene Kontaktaufnahme. Sie koennen der Nutzung jederzeit formlos per Antwort auf diese Mail widersprechen; wir loeschen Ihre Daten dann. Weitere Informationen in unserer Datenschutzerklaerung.",
+        "options": {}
+      },
+      "id": "mail-danke",
+      "name": "Dankes-Mail senden",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [1920, 80]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {"id": "grund", "name": "pruefgrund", "value": "={{ $json.maengel.join('; ') }}", "type": "string"},
+            {"id": "aktion", "name": "naechster_schritt", "value": "Karte im Original nachsehen und die fehlenden Felder von Hand ergaenzen. Nicht ins CRM uebernommen, keine Dankes-Mail versendet.", "type": "string"},
+            {"id": "vorschlag", "name": "erkannt", "value": "={{ $json.name_komplett }} | {{ $json.firma }} | {{ $json.email }} | {{ $json.telefon }}", "type": "string"}
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "set-manuell",
+      "name": "Zur manuellen Nacherfassung",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1700, 340]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {"id": "verworfen", "name": "verworfen", "value": "Keine Einwilligung zur Kontaktaufnahme dokumentiert", "type": "string"},
+            {"id": "hinweis", "name": "hinweis", "value": "Die Karte wird nicht ausgewertet und nicht ins CRM uebernommen. Eine uebergebene Visitenkarte allein ist keine Einwilligung in Werbung — bei Bedarf beim naechsten persoenlichen Kontakt nachholen.", "type": "string"},
+            {"id": "messe", "name": "messe", "value": "={{ $json['Messe'] }}", "type": "string"}
+          ]
+        },
+        "options": {}
+      },
+      "id": "set-ohne-einwilligung",
+      "name": "Ohne Einwilligung verwerfen",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [820, 520]
+    }
+  ],
+  "connections": {
+    "Visitenkarte hochladen": {"main": [[{"node": "Einwilligung erteilt?", "type": "main", "index": 0}]]},
+    "Einwilligung erteilt?": {"main": [[{"node": "Visitenkarte auslesen", "type": "main", "index": 0}], [{"node": "Ohne Einwilligung verwerfen", "type": "main", "index": 0}]]},
+    "Visitenkarte auslesen": {"main": [[{"node": "Felder strukturieren", "type": "main", "index": 0}]]},
+    "Felder strukturieren": {"main": [[{"node": "Plausibilitaet pruefen", "type": "main", "index": 0}]]},
+    "Plausibilitaet pruefen": {"main": [[{"node": "Daten verwertbar?", "type": "main", "index": 0}]]},
+    "Daten verwertbar?": {"main": [[{"node": "Kontakt im CRM anlegen", "type": "main", "index": 0}], [{"node": "Zur manuellen Nacherfassung", "type": "main", "index": 0}]]},
+    "Kontakt im CRM anlegen": {"main": [[{"node": "Dankes-Mail senden", "type": "main", "index": 0}]]}
+  },
+  "settings": {"executionOrder": "v1"},
+  "pinData": {}
+}

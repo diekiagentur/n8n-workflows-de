@@ -1,0 +1,316 @@
+{
+  "name": "DSGVO-Auskunftsersuchen nach Art. 15 strukturiert bearbeiten",
+  "meta": {
+    "beschreibung": "Nimmt Auskunftsersuchen nach Art. 15 DSGVO ueber ein Formular entgegen, legt einen Vorgang im Fristenregister an und berechnet die Fristen. Entscheidender Punkt: Es werden keine Daten automatisch herausgegeben. Der Workflow haelt an und wartet auf die manuelle Bestaetigung der Identitaet durch die datenschutzverantwortliche Person; erst danach werden die angebundenen Datenquellen abgefragt und eine Zusammenstellung entlang der Pflichtangaben aus Art. 15 Abs. 1 erzeugt. Diese Zusammenstellung geht als Entwurf an die verantwortliche Person, nicht an die betroffene Person. Parallel laeuft die Fristenueberwachung: Erinnerung nach 20 Tagen, weil die Antwortfrist nach Art. 12 Abs. 3 DSGVO einen Monat betraegt und eine Verlaengerung um bis zu zwei Monate begruendet und angekuendigt werden muss. Der Workflow strukturiert die Bearbeitung und dokumentiert sie nachvollziehbar, er ersetzt weder die rechtliche Pruefung des Einzelfalls noch die Abwaegung nach Art. 15 Abs. 4 DSGVO.",
+    "kategorie": "DSGVO & Compliance",
+    "schwierigkeit": "fortgeschritten",
+    "benoetigt": ["Google Sheets", "SMTP-Postfach", "interne Datenquellen-API (optional)"],
+    "quelle": "https://die-ki-agentur.de/n8n-agentur/"
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Auskunftsersuchen nach Art. 15 DSGVO\n\n**Ablauf:** Formular → Fristen berechnen → Vorgang im Fristenregister → zwei parallele Straenge:\n\n**Strang 1 (Bearbeitung):** Mail an die datenschutzverantwortliche Person mit Bestaetigungs-Link → Workflow **wartet** → erst nach Klick auf `bestaetigt=ja` werden Datenquellen abgefragt → Zusammenstellung → Entwurf an die verantwortliche Person.\n\n**Strang 2 (Fristen):** Warten bis Tag 20 → Status im Register nachschlagen → wenn noch offen, Erinnerungsmail. Die Frist betraegt einen Monat (Art. 12 Abs. 3 DSGVO), 20 Tage lassen Luft fuer Rueckfragen oder eine begruendete Verlaengerung.\n\n**Der kritische Punkt:** Es werden **nie** automatisch Daten an die anfragende Person gesendet. Der Workflow gibt nur einen Entwurf an die interne verantwortliche Person aus. Herausgabe an falsche Empfaenger ist selbst eine meldepflichtige Datenschutzverletzung.\n\n**Vor dem Start:**\n1. Google-Sheet `Auskunftsersuchen` anlegen, Spalten: Vorgangs-ID, Eingang, Frist, Erinnerung, Name, E-Mail, Umfang, Identitaet geprueft, Status, Bearbeiter, Erledigt am, Hinweise\n2. Sheet-ID sowie die Adressen (HIER_...) ersetzen\n3. Im Node `Datenquellen abfragen` den internen Endpunkt eintragen, der CRM, ERP, Newsletter und Ticketsystem abfragt. Ohne Endpunkt laeuft der Workflow weiter und markiert die Recherche als manuell zu erledigen.\n4. Datenquellen-Liste im Node `Auskunft zusammenstellen` an die eigene Systemlandschaft anpassen — die Vollstaendigkeit der Auskunft haengt genau daran.\n5. Alternativ statt des Formulars einen IMAP-Trigger auf ein Datenschutz-Postfach setzen (dann Feldnamen im Node `Fristen berechnen` anpassen).\n\n**Grenze:** Keine Rechtsberatung. Ob eine Auskunft ganz, teilweise oder gar nicht erteilt wird (Art. 15 Abs. 4, Par. 34 BDSG), entscheidet die verantwortliche Person.\n\n**Betreuung:** https://die-ki-agentur.de/n8n-agentur/",
+        "height": 820,
+        "width": 540
+      },
+      "id": "note-doku",
+      "name": "Kurzanleitung",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-220, -160]
+    },
+    {
+      "parameters": {
+        "path": "auskunftsersuchen",
+        "formTitle": "Auskunftsersuchen nach Art. 15 DSGVO",
+        "formDescription": "Erfassung eines eingegangenen Auskunftsersuchens. Wird von der betroffenen Person selbst oder von der annehmenden Stelle ausgefuellt. Die Identitaet wird anschliessend separat geprueft - es werden ueber dieses Formular keine Daten herausgegeben.",
+        "formFields": {"values": [
+          {"fieldLabel": "Name der betroffenen Person", "requiredField": true},
+          {"fieldLabel": "E-Mail der betroffenen Person", "fieldType": "email", "requiredField": true},
+          {"fieldLabel": "Postanschrift", "fieldType": "textarea", "requiredField": false},
+          {"fieldLabel": "Eingangsdatum des Ersuchens", "fieldType": "date", "requiredField": true},
+          {"fieldLabel": "Eingangskanal", "fieldType": "dropdown", "fieldOptions": {"values": [{"option": "E-Mail"}, {"option": "Brief"}, {"option": "Telefon (schriftlich nachgereicht)"}, {"option": "Persoenlich"}, {"option": "Kontaktformular"}]}, "requiredField": true},
+          {"fieldLabel": "Umfang des Ersuchens", "fieldType": "textarea", "placeholder": "Woertliche Wiedergabe der Anfrage. Bezieht sie sich auf alle Daten oder nur auf einen bestimmten Vorgang?", "requiredField": true},
+          {"fieldLabel": "Kopie der Daten verlangt (Art. 15 Abs. 3)?", "fieldType": "dropdown", "fieldOptions": {"values": [{"option": "Ja"}, {"option": "Nein"}, {"option": "Nicht eindeutig"}]}, "requiredField": true},
+          {"fieldLabel": "Bekannte Kundenbeziehung", "fieldType": "dropdown", "fieldOptions": {"values": [{"option": "Ja, Kunde"}, {"option": "Ja, ehemaliger Kunde"}, {"option": "Ja, Bewerber oder ehemalige Beschaeftigte"}, {"option": "Nein, keine bekannt"}, {"option": "Unklar"}]}, "requiredField": true}
+        ]},
+        "options": {"appendAttribution": false}
+      },
+      "id": "trigger-formular",
+      "name": "Auskunftsersuchen erfassen",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
+      "position": [400, 320]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Die Monatsfrist aus Art. 12 Abs. 3 DSGVO ist kalendarisch, nicht 30 Tage.\n// Deshalb wird ueber setMonth gerechnet - der 31.01. plus ein Monat ist der\n// 28./29.02., nicht der 02.03. Wer hier mit 30 Tagen rechnet, liegt in vier\n// Monaten des Jahres daneben.\nfunction plusEinMonat(d) {\n  const ziel = new Date(d.getTime());\n  const tag = ziel.getDate();\n  ziel.setMonth(ziel.getMonth() + 1);\n  if (ziel.getDate() < tag) ziel.setDate(0); // Ueberlauf auf Monatsende zurueckziehen\n  return ziel;\n}\nconst de = (d) => d.toLocaleDateString('de-DE');\nconst iso = (d) => d.toISOString().slice(0, 10);\n\nconst raus = [];\nfor (const eintrag of $input.all()) {\n  const f = eintrag.json || {};\n  const eingangRoh = String(f['Eingangsdatum des Ersuchens'] || '').trim();\n  const eingang = eingangRoh ? new Date(eingangRoh) : new Date();\n  const gueltig = !isNaN(eingang.getTime());\n  const start = gueltig ? eingang : new Date();\n\n  const frist = plusEinMonat(start);\n  const erinnerung = new Date(start.getTime() + 20 * 24 * 60 * 60 * 1000);\n  const verlaengerung = plusEinMonat(plusEinMonat(frist));\n\n  const hinweise = [];\n  if (!gueltig) hinweise.push('Eingangsdatum unlesbar - heutiges Datum angesetzt, bitte pruefen');\n  if (gueltig && start.getTime() > Date.now() + 86400000) hinweise.push('Eingangsdatum liegt in der Zukunft - Tippfehler pruefen');\n  // Ein spaet erfasstes Ersuchen ist der haeufigste Grund fuer Fristversaeumnis.\n  const tageOffen = Math.floor((Date.now() - start.getTime()) / 86400000);\n  if (tageOffen > 20) hinweise.push('Ersuchen liegt bereits ' + tageOffen + ' Tage zurueck - Frist laeuft bald ab, sofort bearbeiten');\n  if (String(f['Bekannte Kundenbeziehung'] || '').startsWith('Nein')) hinweise.push('Keine bekannte Kundenbeziehung - auch eine Negativauskunft ist eine Auskunft und fristgebunden');\n  if (String(f['Kopie der Daten verlangt (Art. 15 Abs. 3)?'] || '') === 'Nicht eindeutig') hinweise.push('Unklar, ob eine Kopie nach Art. 15 Abs. 3 verlangt wird - beim Antragsteller nachfragen');\n\n  const laufnummer = String(Date.now()).slice(-6);\n  raus.push({\n    json: {\n      vorgang_id: 'AUS-' + start.getFullYear() + '-' + laufnummer,\n      eingang_de: de(start),\n      eingang_iso: iso(start),\n      frist_de: de(frist),\n      frist_iso: iso(frist),\n      erinnerung_de: de(erinnerung),\n      erinnerung_iso: iso(erinnerung),\n      verlaengerung_moeglich_bis_de: de(verlaengerung),\n      name: String(f['Name der betroffenen Person'] || '').trim(),\n      email: String(f['E-Mail der betroffenen Person'] || '').trim(),\n      anschrift: String(f['Postanschrift'] || '').trim(),\n      kanal: String(f['Eingangskanal'] || ''),\n      umfang: String(f['Umfang des Ersuchens'] || '').trim(),\n      kopie_verlangt: String(f['Kopie der Daten verlangt (Art. 15 Abs. 3)?'] || ''),\n      kundenbeziehung: String(f['Bekannte Kundenbeziehung'] || ''),\n      status: 'Eingegangen - Identitaetspruefung offen',\n      identitaet_geprueft: 'nein',\n      hinweise: hinweise.join(' | ')\n    }\n  });\n}\nreturn raus;"
+      },
+      "id": "fristen-rechnen",
+      "name": "Fristen berechnen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [620, 320]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {"__rl": true, "value": "HIER_SHEET_ID_EINTRAGEN", "mode": "id"},
+        "sheetName": {"__rl": true, "value": "Auskunftsersuchen", "mode": "name"},
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Vorgangs-ID": "={{ $json.vorgang_id }}",
+            "Eingang": "={{ $json.eingang_de }}",
+            "Frist": "={{ $json.frist_de }}",
+            "Erinnerung": "={{ $json.erinnerung_de }}",
+            "Name": "={{ $json.name }}",
+            "E-Mail": "={{ $json.email }}",
+            "Kanal": "={{ $json.kanal }}",
+            "Umfang": "={{ $json.umfang }}",
+            "Kopie verlangt": "={{ $json.kopie_verlangt }}",
+            "Identitaet geprueft": "={{ $json.identitaet_geprueft }}",
+            "Status": "={{ $json.status }}",
+            "Hinweise": "={{ $json.hinweise }}",
+            "Bearbeiter": "",
+            "Erledigt am": ""
+          }
+        },
+        "options": {}
+      },
+      "id": "sheet-anlegen",
+      "name": "Vorgang im Fristenregister anlegen",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [840, 320]
+    },
+    {
+      "parameters": {
+        "fromEmail": "HIER_ABSENDER_EMAIL_EINTRAGEN",
+        "toEmail": "HIER_EMAIL_DATENSCHUTZBEAUFTRAGTER_EINTRAGEN",
+        "subject": "=Identitaetspruefung erforderlich - Auskunftsersuchen {{ $('Fristen berechnen').item.json.vorgang_id }}",
+        "emailFormat": "text",
+        "text": "=Es ist ein Auskunftsersuchen nach Art. 15 DSGVO eingegangen. Der Vorgang wartet auf Ihre Freigabe - es wurden noch keine Daten zusammengestellt und nichts versendet.\n\nVorgang: {{ $('Fristen berechnen').item.json.vorgang_id }}\nEingang: {{ $('Fristen berechnen').item.json.eingang_de }}\nFrist (Art. 12 Abs. 3 DSGVO): {{ $('Fristen berechnen').item.json.frist_de }}\nVerlaengerung waere begruendet moeglich bis: {{ $('Fristen berechnen').item.json.verlaengerung_moeglich_bis_de }}\n\nAntragsteller: {{ $('Fristen berechnen').item.json.name }}\nE-Mail: {{ $('Fristen berechnen').item.json.email }}\nAnschrift: {{ $('Fristen berechnen').item.json.anschrift || 'nicht angegeben' }}\nEingangskanal: {{ $('Fristen berechnen').item.json.kanal }}\nBekannte Kundenbeziehung: {{ $('Fristen berechnen').item.json.kundenbeziehung }}\nKopie verlangt (Art. 15 Abs. 3): {{ $('Fristen berechnen').item.json.kopie_verlangt }}\n\nWortlaut des Ersuchens:\n{{ $('Fristen berechnen').item.json.umfang }}\n\nAutomatische Hinweise: {{ $('Fristen berechnen').item.json.hinweise || 'keine' }}\n\nBITTE ZUERST DIE IDENTITAET PRUEFEN.\nBei begruendeten Zweifeln zusaetzliche Informationen anfordern (Art. 12 Abs. 6 DSGVO) - dabei nur so viel wie noetig, kein pauschaler Ausweisversand. Die Zuordnung zu einem bestehenden Konto oder Vorgang reicht in der Regel aus.\n\nIdentitaet bestaetigt, Recherche starten:\n{{ $execution.resumeUrl }}?bestaetigt=ja\n\nIdentitaet NICHT bestaetigt, Nachweis nachfordern:\n{{ $execution.resumeUrl }}?bestaetigt=nein\n\nDiese Links nicht weiterleiten - sie steuern die Freigabe des Vorgangs.\n\nErstellt automatisch von n8n. Der Workflow strukturiert die Bearbeitung und ersetzt keine rechtliche Pruefung.",
+        "options": {}
+      },
+      "id": "mail-identitaet",
+      "name": "Identitaetspruefung anfordern",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [1060, 180]
+    },
+    {
+      "parameters": {
+        "resume": "webhook",
+        "limitWaitTime": true,
+        "limitType": "afterTimeInterval",
+        "resumeAmount": 25,
+        "resumeUnit": "days",
+        "options": {}
+      },
+      "id": "warten-freigabe",
+      "name": "Auf manuelle Freigabe warten",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [1280, 180],
+      "webhookId": "a1f4c0d2-9b3e-4c11-8f7a-2d6e5b0c4931"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {"caseSensitive": false, "version": 2},
+          "conditions": [{
+            "id": "bestaetigt",
+            "leftValue": "={{ $json.query?.bestaetigt }}",
+            "rightValue": "ja",
+            "operator": {"type": "string", "operation": "equals"}
+          }],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "weiche-identitaet",
+      "name": "Identitaet bestaetigt?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1500, 180]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "HIER_INTERNE_DATENQUELLEN_API_EINTRAGEN",
+        "sendHeaders": true,
+        "headerParameters": {"parameters": [{"name": "Content-Type", "value": "application/json"}]},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ vorgang_id: $('Fristen berechnen').item.json.vorgang_id, email: $('Fristen berechnen').item.json.email, name: $('Fristen berechnen').item.json.name, zweck: 'Auskunft nach Art. 15 DSGVO' }) }}",
+        "options": {"timeout": 60000, "response": {"response": {"neverError": true}}}
+      },
+      "id": "quellen-abfragen",
+      "name": "Datenquellen abfragen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1720, 80],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 2
+    },
+    {
+      "parameters": {
+        "jsCode": "// Art. 15 Abs. 1 DSGVO listet acht Pflichtangaben. Eine Auskunft, die nur\n// die Daten selbst enthaelt, ist unvollstaendig - deshalb wird hier ein\n// Geruest entlang lit. a bis h erzeugt, das die verantwortliche Person\n// befuellt bzw. bestaetigt. Die Systemliste ist der eigentliche Knackpunkt:\n// vergessene Quellen sind der haeufigste Grund fuer unvollstaendige Auskuenfte.\nconst vorgang = $('Fristen berechnen').item.json;\nconst antwort = $input.first().json || {};\n\n// An die eigene Systemlandschaft anpassen.\nconst QUELLEN = ['CRM', 'ERP / Warenwirtschaft', 'Newsletter-Tool', 'Ticketsystem / Support', 'Buchhaltung', 'Bewerbermanagement', 'Telefonanlage / Gespraechsnotizen', 'Backups'];\n\nconst treffer = Array.isArray(antwort.treffer) ? antwort.treffer : (Array.isArray(antwort.results) ? antwort.results : []);\nconst abgefragt = treffer.map(t => String(t.quelle || t.source || '')).filter(Boolean);\nconst offen = QUELLEN.filter(q => !abgefragt.some(a => a.toLowerCase().includes(q.toLowerCase().split(' ')[0])));\nconst apiErreichbar = treffer.length > 0 || Array.isArray(antwort.treffer);\n\nconst z = [];\nz.push('# Entwurf Auskunft nach Art. 15 DSGVO - ' + vorgang.vorgang_id);\nz.push('');\nz.push('Antragsteller: ' + vorgang.name + ' (' + vorgang.email + ')');\nz.push('Eingang: ' + vorgang.eingang_de + ' | Frist: ' + vorgang.frist_de);\nz.push('Identitaet: durch die verantwortliche Person bestaetigt am ' + new Date().toLocaleDateString('de-DE'));\nz.push('');\nz.push('## Pflichtangaben nach Art. 15 Abs. 1');\nz.push('a) Verarbeitungszwecke: [ausfuellen]');\nz.push('b) Kategorien personenbezogener Daten: [ausfuellen]');\nz.push('c) Empfaenger oder Kategorien von Empfaengern, auch in Drittlaendern: [ausfuellen]');\nz.push('d) Geplante Speicherdauer oder Kriterien zu ihrer Festlegung: [ausfuellen]');\nz.push('e) Hinweis auf Berichtigung, Loeschung, Einschraenkung und Widerspruch: Standardtext einfuegen');\nz.push('f) Hinweis auf das Beschwerderecht bei einer Aufsichtsbehoerde: Standardtext einfuegen');\nz.push('g) Herkunft der Daten, wenn nicht bei der Person erhoben: [ausfuellen]');\nz.push('h) Automatisierte Entscheidungsfindung einschliesslich Profiling: [ausfuellen, sonst ausdruecklich verneinen]');\nz.push('');\nz.push('## Rechercheergebnis je Datenquelle');\nif (treffer.length === 0) {\n  z.push('- Keine maschinellen Ergebnisse vorhanden. Alle Quellen manuell abfragen und hier dokumentieren.');\n} else {\n  for (const t of treffer) {\n    z.push('- ' + (t.quelle || t.source || 'unbenannte Quelle') + ': ' + (t.anzahl ?? t.count ?? 'unbekannt') + ' Datensaetze' + (t.hinweis ? ' (' + t.hinweis + ')' : ''));\n  }\n}\nz.push('');\nz.push('## Noch manuell zu pruefende Quellen');\nif (offen.length === 0) z.push('- keine');\nfor (const q of offen) z.push('- ' + q + ' [Ergebnis eintragen, auch Fehlanzeige dokumentieren]');\nz.push('');\nz.push('## Vor dem Versand pruefen');\nz.push('- Rechte und Freiheiten anderer Personen (Art. 15 Abs. 4): Daten Dritter schwaerzen oder herausnehmen');\nz.push('- Beschraenkungen nach Par. 34 BDSG pruefen');\nz.push('- Kopie nach Art. 15 Abs. 3 verlangt: ' + vorgang.kopie_verlangt);\nz.push('- Sicherer Versandweg: verschluesselt oder per Einschreiben, nicht unverschluesselt per Mail');\nz.push('- Bei Ablehnung oder Teilauskunft: Begruendung und Hinweis auf Beschwerderecht');\n\nconst warnungen = [];\nif (!apiErreichbar) warnungen.push('Datenquellen-API nicht erreichbar oder nicht konfiguriert - Recherche vollstaendig manuell durchfuehren');\nif (offen.length > 0) warnungen.push(offen.length + ' Quelle(n) ohne maschinelles Ergebnis');\n\nreturn [{\n  json: {\n    ...vorgang,\n    identitaet_geprueft: 'ja',\n    status: 'Entwurf erstellt - inhaltliche Pruefung und Versand offen',\n    quellen_offen: offen.join(', '),\n    warnungen: warnungen.join(' | '),\n    zusammenstellung: z.join('\\n')\n  }\n}];"
+      },
+      "id": "auskunft-bauen",
+      "name": "Auskunft zusammenstellen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1940, 80]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {"__rl": true, "value": "HIER_SHEET_ID_EINTRAGEN", "mode": "id"},
+        "sheetName": {"__rl": true, "value": "Auskunftsersuchen", "mode": "name"},
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": ["Vorgangs-ID"],
+          "value": {
+            "Vorgangs-ID": "={{ $json.vorgang_id }}",
+            "Identitaet geprueft": "={{ $json.identitaet_geprueft }}",
+            "Status": "={{ $json.status }}",
+            "Hinweise": "={{ $json.warnungen }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "sheet-aktualisieren",
+      "name": "Fristenregister aktualisieren",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [2160, 80]
+    },
+    {
+      "parameters": {
+        "fromEmail": "HIER_ABSENDER_EMAIL_EINTRAGEN",
+        "toEmail": "HIER_EMAIL_DATENSCHUTZBEAUFTRAGTER_EINTRAGEN",
+        "subject": "=Entwurf zur Auskunft {{ $json.vorgang_id }} - NICHT ungeprueft versenden",
+        "emailFormat": "text",
+        "text": "=Die Recherche zum Vorgang {{ $json.vorgang_id }} ist abgeschlossen. Anbei der Entwurf.\n\nDieser Entwurf geht bewusst NUR an Sie und nicht an die betroffene Person. Versand erst nach inhaltlicher Pruefung und Freigabe.\n\nFrist: {{ $json.frist_de }}\nNoch offene Quellen: {{ $json.quellen_offen || 'keine' }}\nWarnungen: {{ $json.warnungen || 'keine' }}\n\n{{ $json.zusammenstellung }}\n\nHinweis: Dieser Workflow strukturiert die Bearbeitung und dokumentiert die Fristen. Er ersetzt keine rechtliche Pruefung des Einzelfalls, insbesondere nicht die Abwaegung nach Art. 15 Abs. 4 DSGVO und die Beschraenkungen nach Par. 34 BDSG.\n\nErstellt automatisch von n8n.",
+        "options": {}
+      },
+      "id": "mail-entwurf",
+      "name": "Entwurf an Verantwortliche",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [2380, 80]
+    },
+    {
+      "parameters": {
+        "assignments": {"assignments": [
+          {"id": "status", "name": "status", "value": "Identitaet nicht bestaetigt - keine Daten herausgegeben", "type": "string"},
+          {"id": "aktion", "name": "naechster_schritt", "value": "Zusaetzliche Informationen zur Identifizierung anfordern (Art. 12 Abs. 6 DSGVO). Nur das Noetigste verlangen. Die Monatsfrist laeuft weiter - Nachforderung dokumentieren.", "type": "string"},
+          {"id": "vorgang", "name": "vorgang_id", "value": "={{ $('Fristen berechnen').item.json.vorgang_id }}", "type": "string"},
+          {"id": "frist", "name": "frist", "value": "={{ $('Fristen berechnen').item.json.frist_de }}", "type": "string"}
+        ]},
+        "options": {}
+      },
+      "id": "nachweis-nachfordern",
+      "name": "Nachweis nachfordern",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1720, 320]
+    },
+    {
+      "parameters": {
+        "resume": "specificTime",
+        "dateTime": "={{ $('Fristen berechnen').item.json.erinnerung_iso }}T08:00:00"
+      },
+      "id": "warten-frist",
+      "name": "Bis Tag 20 warten",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [1060, 560],
+      "webhookId": "b7c2e8a4-5d19-4f63-9a02-7e1b3c8d5406"
+    },
+    {
+      "parameters": {
+        "documentId": {"__rl": true, "value": "HIER_SHEET_ID_EINTRAGEN", "mode": "id"},
+        "sheetName": {"__rl": true, "value": "Auskunftsersuchen", "mode": "name"},
+        "filtersUI": {"values": [{"lookupColumn": "Vorgangs-ID", "lookupValue": "={{ $('Fristen berechnen').item.json.vorgang_id }}"}]},
+        "options": {}
+      },
+      "id": "sheet-status",
+      "name": "Status im Register nachschlagen",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1280, 560],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {"caseSensitive": false, "version": 2},
+          "conditions": [{
+            "id": "offen",
+            "leftValue": "={{ $json['Erledigt am'] }}",
+            "rightValue": "",
+            "operator": {"type": "string", "operation": "empty", "singleValue": true}
+          }],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "weiche-offen",
+      "name": "Vorgang noch offen?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1500, 560]
+    },
+    {
+      "parameters": {
+        "fromEmail": "HIER_ABSENDER_EMAIL_EINTRAGEN",
+        "toEmail": "HIER_EMAIL_DATENSCHUTZBEAUFTRAGTER_EINTRAGEN",
+        "ccEmail": "HIER_EMAIL_GESCHAEFTSFUEHRUNG_EINTRAGEN",
+        "subject": "=Fristerinnerung: Auskunftsersuchen {{ $('Fristen berechnen').item.json.vorgang_id }} laeuft am {{ $('Fristen berechnen').item.json.frist_de }} ab",
+        "emailFormat": "text",
+        "text": "=Der Vorgang {{ $('Fristen berechnen').item.json.vorgang_id }} ist im Fristenregister noch nicht als erledigt eingetragen.\n\nEingang: {{ $('Fristen berechnen').item.json.eingang_de }}\nFrist nach Art. 12 Abs. 3 DSGVO: {{ $('Fristen berechnen').item.json.frist_de }}\nAntragsteller: {{ $('Fristen berechnen').item.json.name }} ({{ $('Fristen berechnen').item.json.email }})\n\nEs bleiben rund zehn Tage. Zwei Wege:\n1. Auskunft fristgerecht erteilen.\n2. Verlaengerung um bis zu zwei weitere Monate nutzen (Art. 12 Abs. 3 Satz 2 DSGVO). Das setzt voraus, dass die betroffene Person INNERHALB DES ERSTEN MONATS ueber die Verlaengerung und deren Gruende unterrichtet wird - eine nachtraegliche Verlaengerung gibt es nicht. Moeglich waere sie bis {{ $('Fristen berechnen').item.json.verlaengerung_moeglich_bis_de }}.\n\nNach Erledigung bitte im Sheet die Spalte \"Erledigt am\" fuellen, sonst erinnert dieser Workflow beim naechsten Vorgang erneut.\n\nErstellt automatisch von n8n. Keine Rechtsberatung.",
+        "options": {}
+      },
+      "id": "mail-frist",
+      "name": "Fristerinnerung senden",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [1720, 480]
+    },
+    {
+      "parameters": {
+        "assignments": {"assignments": [
+          {"id": "status", "name": "fristueberwachung", "value": "Vorgang war am Tag 20 bereits als erledigt eingetragen - keine Erinnerung noetig", "type": "string"},
+          {"id": "vorgang", "name": "vorgang_id", "value": "={{ $('Fristen berechnen').item.json.vorgang_id }}", "type": "string"}
+        ]},
+        "options": {}
+      },
+      "id": "frist-erledigt",
+      "name": "Frist bereits erledigt",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1720, 700]
+    }
+  ],
+  "connections": {
+    "Auskunftsersuchen erfassen": {"main": [[{"node": "Fristen berechnen", "type": "main", "index": 0}]]},
+    "Fristen berechnen": {"main": [[{"node": "Vorgang im Fristenregister anlegen", "type": "main", "index": 0}]]},
+    "Vorgang im Fristenregister anlegen": {"main": [[{"node": "Identitaetspruefung anfordern", "type": "main", "index": 0}, {"node": "Bis Tag 20 warten", "type": "main", "index": 0}]]},
+    "Identitaetspruefung anfordern": {"main": [[{"node": "Auf manuelle Freigabe warten", "type": "main", "index": 0}]]},
+    "Auf manuelle Freigabe warten": {"main": [[{"node": "Identitaet bestaetigt?", "type": "main", "index": 0}]]},
+    "Identitaet bestaetigt?": {"main": [[{"node": "Datenquellen abfragen", "type": "main", "index": 0}], [{"node": "Nachweis nachfordern", "type": "main", "index": 0}]]},
+    "Datenquellen abfragen": {"main": [[{"node": "Auskunft zusammenstellen", "type": "main", "index": 0}]]},
+    "Auskunft zusammenstellen": {"main": [[{"node": "Fristenregister aktualisieren", "type": "main", "index": 0}]]},
+    "Fristenregister aktualisieren": {"main": [[{"node": "Entwurf an Verantwortliche", "type": "main", "index": 0}]]},
+    "Bis Tag 20 warten": {"main": [[{"node": "Status im Register nachschlagen", "type": "main", "index": 0}]]},
+    "Status im Register nachschlagen": {"main": [[{"node": "Vorgang noch offen?", "type": "main", "index": 0}]]},
+    "Vorgang noch offen?": {"main": [[{"node": "Fristerinnerung senden", "type": "main", "index": 0}], [{"node": "Frist bereits erledigt", "type": "main", "index": 0}]]}
+  },
+  "settings": {"executionOrder": "v1"},
+  "pinData": {}
+}

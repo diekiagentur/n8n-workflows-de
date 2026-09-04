@@ -1,0 +1,284 @@
+{
+  "name": "Wettbewerbspreise beobachten mit Schwellenwert",
+  "meta": {
+    "beschreibung": "Ruft taeglich die in einem Google Sheet gepflegten Wettbewerber-URLs ab, liest den Preis zuerst ueber einen hinterlegten CSS-Selektor und faellt nur bei Misserfolg auf die KI zurueck, vergleicht ihn mit dem eigenen Preis und schreibt jeden Lauf in eine Historie. Eine Meldung geht nur raus, wenn die Abweichung den je Produkt gepflegten Schwellenwert ueberschreitet - so entsteht kein taegliches Rauschen, das nach zwei Wochen ignoriert wird. Rechtlicher Hinweis: Vor dem Einsatz robots.txt und Nutzungsbedingungen der Zielseiten pruefen, Abrufe auf ein zumutbares Mass begrenzen (hier ein Abruf alle zwei Sekunden) und den eigenen Betrieb im User-Agent kenntlich machen; Preisdaten sind nicht personenbezogen, Produktseiten koennen aber urheberrechtlich geschuetzte Inhalte enthalten, die nicht gespeichert werden sollten.",
+    "kategorie": "Daten & Reporting",
+    "schwierigkeit": "fortgeschritten",
+    "benoetigt": ["Google Sheets", "OpenAI-API (oder Ollama)", "SMTP-Postfach"],
+    "quelle": "https://die-ki-agentur.de/n8n-agentur/"
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Wettbewerbspreise beobachten\n\n**Ablauf:** Taeglich 6 Uhr → Produktliste aus Google Sheets → Seite abrufen → Preis per CSS-Selektor, bei Misserfolg per KI → mit eigenem Preis vergleichen → Historie ins Sheet → Meldung nur oberhalb des Schwellenwerts.\n\n**Vor dem Start:**\n1. Google-Sheet `Preisbeobachtung` mit den Spalten: Produkt, Artikelnummer, Eigener Preis, Wettbewerber, URL, Selektor, Schwelle Prozent, Aktiv\n2. Zweites Tabellenblatt `Historie` mit: Datum, Produkt, Wettbewerber, Eigener Preis, Wettbewerbspreis, Abweichung Prozent, Quelle, Status\n3. Sheet-ID in beiden Google-Sheets-Nodes eintragen (HIER_SHEET_ID_EINTRAGEN)\n4. Im Feld `Selektor` z. B. `.product-price`, `#preis` oder `[itemprop=price]` hinterlegen. Bleibt es leer oder greift es nicht, uebernimmt die KI den Ausschnitt.\n5. `Schwelle Prozent` je Produkt pflegen (Voreinstellung 3). Zu klein gewaehlt heisst: taegliche Mails, die niemand mehr liest.\n6. Absender und Empfaenger im Mail-Node ersetzen, User-Agent im HTTP-Node auf den eigenen Betrieb setzen\n\n**Rechtlich:** robots.txt und Nutzungsbedingungen der Zielseiten pruefen, bevor der Workflow scharf geschaltet wird. Der HTTP-Node ruft bewusst nur einen Datensatz alle zwei Sekunden ab und weist sich im User-Agent aus.\n\n**Betreuung:** https://die-ki-agentur.de/n8n-agentur/",
+        "height": 640,
+        "width": 460
+      },
+      "id": "note-doku",
+      "name": "Kurzanleitung",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-140, -60]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {"field": "days", "triggerAtHour": 6, "triggerAtMinute": 0}
+          ]
+        }
+      },
+      "id": "trigger-taeglich",
+      "name": "Taeglicher Preischeck",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [380, 360]
+    },
+    {
+      "parameters": {
+        "documentId": {"__rl": true, "value": "HIER_SHEET_ID_EINTRAGEN", "mode": "id"},
+        "sheetName": {"__rl": true, "value": "Preisbeobachtung", "mode": "name"},
+        "options": {}
+      },
+      "id": "sheet-produkte",
+      "name": "Produktliste lesen",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [600, 360]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {"caseSensitive": false, "version": 2},
+          "conditions": [
+            {
+              "id": "aktiv",
+              "leftValue": "={{ String($json['Aktiv'] ?? '').toLowerCase() }}",
+              "rightValue": "ja",
+              "operator": {"type": "string", "operation": "equals"}
+            },
+            {
+              "id": "url",
+              "leftValue": "={{ $json['URL'] }}",
+              "rightValue": "^https?://",
+              "operator": {"type": "string", "operation": "regex"}
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-aktiv",
+      "name": "Nur aktive Beobachtungen",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [820, 360]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json['URL'] }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {"name": "User-Agent", "value": "HIER_FIRMENNAME_EINTRAGEN Preismonitor (kontakt@HIER_FIRMENDOMAIN_EINTRAGEN.de)"},
+            {"name": "Accept", "value": "text/html"},
+            {"name": "Accept-Language", "value": "de-DE,de;q=0.9"}
+          ]
+        },
+        "options": {
+          "timeout": 20000,
+          "redirect": {"redirect": {"followRedirects": true, "maxRedirects": 5}},
+          "response": {"response": {"neverError": true, "fullResponse": true, "responseFormat": "text"}},
+          "batching": {"batch": {"batchSize": 1, "batchInterval": 2000}}
+        }
+      },
+      "id": "http-seite",
+      "name": "Wettbewerberseite abrufen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1040, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {"caseSensitive": true, "version": 2},
+          "conditions": [
+            {
+              "id": "status-ok",
+              "leftValue": "={{ Number($json.statusCode ?? 0) }}",
+              "rightValue": 400,
+              "operator": {"type": "number", "operation": "lt"}
+            },
+            {
+              "id": "inhalt",
+              "leftValue": "={{ String($json.body ?? '').length }}",
+              "rightValue": 500,
+              "operator": {"type": "number", "operation": "gt"}
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-abruf",
+      "name": "Abruf erfolgreich?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1260, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Erst der Selektor, dann die KI: ein Token pro Seite und Tag summiert sich, und\n// ein funktionierender Selektor ist praeziser als jedes Modell. Die KI ist der\n// Rueckfall fuer Shops, die ihr Markup aendern oder den Preis verschachteln.\n\nfunction alsBetrag(text) {\n  const s = String(text ?? '').replace(/[^0-9,.]/g, '');\n  if (!s) return null;\n  // Deutsches Format (1.299,00) vom englischen (1,299.00) unterscheiden: massgeblich\n  // ist, welches Zeichen zuletzt steht - das ist das Dezimaltrennzeichen.\n  const letzterPunkt = s.lastIndexOf('.');\n  const letztesKomma = s.lastIndexOf(',');\n  let normalisiert;\n  if (letztesKomma > letzterPunkt) {\n    normalisiert = s.replace(/\\./g, '').replace(',', '.');\n  } else {\n    normalisiert = s.replace(/,/g, '');\n  }\n  const zahl = Number(normalisiert);\n  return isFinite(zahl) && zahl > 0 ? Number(zahl.toFixed(2)) : null;\n}\n\nfunction tagsRaus(html) {\n  return String(html).replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\\s+/g, ' ').trim();\n}\n\n// Bewusst regexbasierte Auswertung statt echter DOM-Navigation: cheerio ist im\n// Code-Node nicht garantiert verfuegbar, und fuer \"nimm den Text in dem Element\n// mit dieser Klasse\" reicht es. Wird das Markup komplexer, greift die KI.\nfunction ausSelektor(html, selektor) {\n  const sel = String(selektor ?? '').trim();\n  if (!sel) return null;\n  let treffer = null;\n  if (sel.startsWith('.')) {\n    const klasse = sel.slice(1).replace(/[^A-Za-z0-9_-]/g, '');\n    treffer = html.match(new RegExp('class=\"[^\"]*\\\\b' + klasse + '\\\\b[^\"]*\"[^>]*>([\\\\s\\\\S]{0,200}?)<', 'i'));\n  } else if (sel.startsWith('#')) {\n    const id = sel.slice(1).replace(/[^A-Za-z0-9_-]/g, '');\n    treffer = html.match(new RegExp('id=\"' + id + '\"[^>]*>([\\\\s\\\\S]{0,200}?)<', 'i'));\n  } else if (sel.startsWith('[')) {\n    const attr = sel.replace(/[\\[\\]\"']/g, '');\n    const teile = attr.split('=');\n    if (teile.length === 2) {\n      // Bei meta-Tags steht der Preis im content-Attribut, nicht im Text.\n      const meta = html.match(new RegExp(teile[0] + '=\"' + teile[1] + '\"[^>]*content=\"([^\"]+)\"', 'i'));\n      treffer = meta || html.match(new RegExp(teile[0] + '=\"' + teile[1] + '\"[^>]*>([\\\\s\\\\S]{0,200}?)<', 'i'));\n    }\n  }\n  return treffer ? alsBetrag(tagsRaus(treffer[1])) : null;\n}\n\n// Zweiter Versuch ohne Selektor: strukturierte Daten. Die meisten Shops liefern\n// den Preis maschinenlesbar mit, bevor man ihn aus dem Layout kratzen muss.\nfunction ausStrukturdaten(html) {\n  const meta = html.match(/itemprop=\"price\"[^>]*content=\"([^\"]+)\"/i)\n    || html.match(/property=\"product:price:amount\"[^>]*content=\"([^\"]+)\"/i)\n    || html.match(/\"price\"\\s*:\\s*\"?([0-9.,]+)\"?/i);\n  return meta ? alsBetrag(meta[1]) : null;\n}\n\nconst raus = [];\n\nfor (const eintrag of $input.all()) {\n  const antwort = eintrag.json;\n  const p = $('Produktliste lesen').item.json;\n  const html = String(antwort.body ?? '');\n\n  let preis = ausSelektor(html, p['Selektor']);\n  let quelle = preis === null ? null : 'Selektor';\n  if (preis === null) {\n    preis = ausStrukturdaten(html);\n    if (preis !== null) quelle = 'Strukturdaten';\n  }\n\n  // Fuer den KI-Fallback nur einen Ausschnitt mitgeben: Skripte und Styles raus,\n  // auf 6000 Zeichen kuerzen. Das spart Token und haelt den Kontext sauber.\n  const rumpf = html\n    .replace(/<script[\\s\\S]*?<\\/script>/gi, ' ')\n    .replace(/<style[\\s\\S]*?<\\/style>/gi, ' ');\n  const index = rumpf.search(/preis|price|EUR|€/i);\n  const start = Math.max(0, index - 2000);\n\n  raus.push({\n    json: {\n      produkt: p['Produkt'] ?? '',\n      artikelnummer: p['Artikelnummer'] ?? '',\n      wettbewerber: p['Wettbewerber'] ?? '',\n      url: p['URL'] ?? '',\n      eigener_preis_roh: p['Eigener Preis'] ?? '',\n      schwelle_prozent: Number(String(p['Schwelle Prozent'] ?? '3').replace(',', '.')) || 3,\n      preis_wettbewerb: preis,\n      preis_quelle: quelle,\n      preis_gefunden: preis !== null,\n      html_ausschnitt: tagsRaus(rumpf.slice(start, start + 6000)),\n    },\n  });\n}\n\nreturn raus;"
+      },
+      "id": "code-selektor",
+      "name": "Preis per Selektor lesen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1480, 220]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {"caseSensitive": true, "version": 2},
+          "conditions": [
+            {
+              "id": "gefunden",
+              "leftValue": "={{ $json.preis_gefunden }}",
+              "rightValue": true,
+              "operator": {"type": "boolean", "operation": "true", "singleValue": true}
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-selektor",
+      "name": "Selektor erfolgreich?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1700, 220]
+    },
+    {
+      "parameters": {
+        "modelId": {"__rl": true, "value": "gpt-4.1-mini", "mode": "list"},
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "Du liest den aktuellen Verkaufspreis eines Produkts aus einem Textausschnitt einer deutschen Shop-Seite. Antworte AUSSCHLIESSLICH mit einem JSON-Objekt, ohne Erklaerung und ohne Markdown.\n\nFelder: preis (number oder null), waehrung (string oder null), quelle_text (string, die Textstelle, aus der der Preis stammt), unsicher (boolean).\n\nRegeln: Massgeblich ist der aktuell gueltige Verkaufspreis inklusive Umsatzsteuer. Streichpreise, unverbindliche Preisempfehlungen, Ratenbetraege, Versandkosten, Staffelpreise fuer andere Mengen und Zubehoerpreise sind NICHT der gesuchte Preis. Deutsche Zahlenformate (1.299,00) in Punktnotation umrechnen. Wenn mehrere Varianten mit unterschiedlichen Preisen auftauchen oder kein Preis eindeutig zuzuordnen ist: preis auf null setzen und unsicher auf true. Lieber null als geraten."
+            },
+            {
+              "role": "user",
+              "content": "=Produkt: {{ $json.produkt }} (Artikelnummer {{ $json.artikelnummer }})\nQuelle: {{ $json.url }}\n\nSeitenausschnitt:\n{{ $json.html_ausschnitt }}"
+            }
+          ]
+        },
+        "jsonOutput": true,
+        "options": {"temperature": 0}
+      },
+      "id": "ki-preis",
+      "name": "Preis per KI aus HTML lesen",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [1920, 100]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Fehlerzweig: Der Abruf ist gescheitert (Timeout, 403, Bot-Sperre, Seite weg).\n// Der Datensatz bekommt trotzdem dieselbe Struktur wie ein erfolgreicher Lauf und\n// wandert in die Historie. Nur so faellt beim Durchblaettern auf, wenn eine URL\n// seit drei Wochen nichts mehr liefert - stilles Verschlucken faellt nie auf.\n\nconst raus = [];\n\nfor (const eintrag of $input.all()) {\n  const antwort = eintrag.json;\n  const p = $('Produktliste lesen').item.json;\n  const status = Number(antwort.statusCode ?? 0);\n\n  let hinweis = 'HTTP-Status ' + status;\n  if (status === 403 || status === 429) {\n    hinweis += ' - die Seite blockt automatisierte Abrufe. Vor weiteren Versuchen robots.txt und Nutzungsbedingungen pruefen.';\n  } else if (status === 404 || status === 410) {\n    hinweis += ' - Produktseite existiert nicht mehr, URL im Sheet aktualisieren.';\n  } else if (status === 0) {\n    hinweis = 'Keine Antwort (Timeout oder DNS-Fehler)';\n  }\n\n  raus.push({\n    json: {\n      produkt: p['Produkt'] ?? '',\n      wettbewerber: p['Wettbewerber'] ?? '',\n      url: p['URL'] ?? '',\n      eigener_preis: null,\n      preis_wettbewerb: null,\n      abweichung_prozent: null,\n      preis_quelle: 'Abruf fehlgeschlagen',\n      status_text: hinweis,\n      meldung_noetig: false,\n    },\n  });\n}\n\nreturn raus;"
+      },
+      "id": "code-fehler",
+      "name": "Abruf-Fehler aufbereiten",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1480, 560]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Der Vergleich entscheidet ueber die Meldung. Zwei Dinge sind hier wichtiger als\n// die Rechnung selbst: eine Plausibilitaetsgrenze, damit ein falsch gelesener\n// Cent-Betrag oder ein Ratenpreis keinen Alarm ausloest, und der je Produkt\n// gepflegte Schwellenwert, damit nicht jede Rundung eine Mail erzeugt.\n\nconst PLAUSIBEL_MIN_FAKTOR = 0.2;   // Wettbewerbspreis unter 20 % des eigenen: unglaubwuerdig\nconst PLAUSIBEL_MAX_FAKTOR = 5;     // ueber dem Fuenffachen ebenfalls\n\nfunction alsBetrag(wert) {\n  if (typeof wert === 'number') return wert;\n  const s = String(wert ?? '').replace(/[^0-9,.\\-]/g, '');\n  if (!s) return 0;\n  return Number(s.replace(/\\./g, '').replace(',', '.')) || 0;\n}\n\nconst raus = [];\n\nfor (const eintrag of $input.all()) {\n  const q = eintrag.json;\n  // Der Datensatz kommt entweder direkt vom Selektor-Node oder ueber die KI.\n  // Im zweiten Fall enthaelt er nur das Modellergebnis, der Produktkontext wird\n  // ueber den Node-Namen nachgeholt.\n  const kontext = q.produkt ? q : $('Preis per Selektor lesen').item.json;\n  const kiWert = q.produkt ? null : (q.preis ?? q.message?.content?.preis ?? null);\n\n  const eigener = Number(alsBetrag(kontext.eigener_preis_roh).toFixed(2));\n  const fremd = kiWert !== null && kiWert !== undefined ? Number(Number(kiWert).toFixed(2)) : kontext.preis_wettbewerb;\n  const quelle = kiWert !== null && kiWert !== undefined ? 'KI' : kontext.preis_quelle;\n  const schwelle = Number(kontext.schwelle_prozent ?? 3);\n\n  let abweichung = null;\n  let status = '';\n  let meldung = false;\n\n  if (!eigener) {\n    status = 'Eigener Preis fehlt im Sheet - kein Vergleich moeglich';\n  } else if (fremd === null || fremd === undefined) {\n    status = 'Kein Preis erkannt, auch nicht per KI - Selektor pruefen';\n  } else if (fremd < eigener * PLAUSIBEL_MIN_FAKTOR || fremd > eigener * PLAUSIBEL_MAX_FAKTOR) {\n    status = 'Ausgelesener Preis ' + fremd.toFixed(2) + ' EUR unplausibel zum eigenen Preis - vermutlich Rate, Zubehoer oder Staffelpreis';\n  } else {\n    abweichung = Number((((fremd - eigener) / eigener) * 100).toFixed(1));\n    meldung = Math.abs(abweichung) >= schwelle;\n    if (abweichung < 0) {\n      status = 'Wettbewerber ist ' + Math.abs(abweichung) + ' Prozent guenstiger';\n    } else if (abweichung > 0) {\n      status = 'Wettbewerber ist ' + abweichung + ' Prozent teurer';\n    } else {\n      status = 'Preisgleich';\n    }\n    if (!meldung) {\n      status += ' (unter der Schwelle von ' + schwelle + ' Prozent, keine Meldung)';\n    }\n  }\n\n  raus.push({\n    json: {\n      produkt: kontext.produkt,\n      artikelnummer: kontext.artikelnummer,\n      wettbewerber: kontext.wettbewerber,\n      url: kontext.url,\n      eigener_preis: eigener || null,\n      preis_wettbewerb: fremd ?? null,\n      abweichung_prozent: abweichung,\n      abweichung_eur: abweichung === null ? null : Number((fremd - eigener).toFixed(2)),\n      schwelle_prozent: schwelle,\n      preis_quelle: quelle,\n      status_text: status,\n      meldung_noetig: meldung,\n    },\n  });\n}\n\nreturn raus;"
+      },
+      "id": "code-vergleich",
+      "name": "Preise vergleichen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2140, 220]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {"__rl": true, "value": "HIER_SHEET_ID_EINTRAGEN", "mode": "id"},
+        "sheetName": {"__rl": true, "value": "Historie", "mode": "name"},
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Datum": "={{ $now.toFormat('dd.MM.yyyy') }}",
+            "Produkt": "={{ $json.produkt }}",
+            "Wettbewerber": "={{ $json.wettbewerber }}",
+            "Eigener Preis": "={{ $json.eigener_preis }}",
+            "Wettbewerbspreis": "={{ $json.preis_wettbewerb }}",
+            "Abweichung Prozent": "={{ $json.abweichung_prozent }}",
+            "Quelle": "={{ $json.preis_quelle }}",
+            "Status": "={{ $json.status_text }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "sheet-historie",
+      "name": "Historie ins Sheet schreiben",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [2360, 420]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {"caseSensitive": true, "version": 2},
+          "conditions": [
+            {
+              "id": "ueber-schwelle",
+              "leftValue": "={{ $json.meldung_noetig }}",
+              "rightValue": true,
+              "operator": {"type": "boolean", "operation": "true", "singleValue": true}
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-schwelle",
+      "name": "Abweichung ueber Schwelle?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2360, 180]
+    },
+    {
+      "parameters": {
+        "fromEmail": "monitoring@HIER_FIRMENDOMAIN_EINTRAGEN.de",
+        "toEmail": "vertrieb@HIER_FIRMENDOMAIN_EINTRAGEN.de",
+        "subject": "=Preisabweichung {{ $json.produkt }}: {{ $json.abweichung_prozent }} % bei {{ $json.wettbewerber }}",
+        "emailFormat": "text",
+        "text": "=Bei einem beobachteten Produkt liegt die Preisabweichung ueber dem eingestellten Schwellenwert.\n\nProdukt:          {{ $json.produkt }} ({{ $json.artikelnummer }})\nWettbewerber:     {{ $json.wettbewerber }}\nEigener Preis:    {{ $json.eigener_preis }} EUR\nWettbewerbspreis: {{ $json.preis_wettbewerb }} EUR\nAbweichung:       {{ $json.abweichung_prozent }} % ({{ $json.abweichung_eur }} EUR)\nSchwellenwert:    {{ $json.schwelle_prozent }} %\nBefund:           {{ $json.status_text }}\nQuelle:           {{ $json.url }}\nAusgelesen per:   {{ $json.preis_quelle }}\n\nHinweis: Der Preis wurde maschinell von der Wettbewerberseite gelesen. Vor einer Preisanpassung kurz auf der Seite gegenpruefen - Aktionspreise, Staffelpreise und Versandkosten sind im Vergleich nicht enthalten.",
+        "options": {}
+      },
+      "id": "mail-alarm",
+      "name": "Preisalarm senden",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [2580, 180]
+    }
+  ],
+  "connections": {
+    "Taeglicher Preischeck": {"main": [[{"node": "Produktliste lesen", "type": "main", "index": 0}]]},
+    "Produktliste lesen": {"main": [[{"node": "Nur aktive Beobachtungen", "type": "main", "index": 0}]]},
+    "Nur aktive Beobachtungen": {"main": [[{"node": "Wettbewerberseite abrufen", "type": "main", "index": 0}], []]},
+    "Wettbewerberseite abrufen": {"main": [[{"node": "Abruf erfolgreich?", "type": "main", "index": 0}]]},
+    "Abruf erfolgreich?": {"main": [[{"node": "Preis per Selektor lesen", "type": "main", "index": 0}], [{"node": "Abruf-Fehler aufbereiten", "type": "main", "index": 0}]]},
+    "Preis per Selektor lesen": {"main": [[{"node": "Selektor erfolgreich?", "type": "main", "index": 0}]]},
+    "Selektor erfolgreich?": {"main": [[{"node": "Preise vergleichen", "type": "main", "index": 0}], [{"node": "Preis per KI aus HTML lesen", "type": "main", "index": 0}]]},
+    "Preis per KI aus HTML lesen": {"main": [[{"node": "Preise vergleichen", "type": "main", "index": 0}]]},
+    "Abruf-Fehler aufbereiten": {"main": [[{"node": "Historie ins Sheet schreiben", "type": "main", "index": 0}]]},
+    "Preise vergleichen": {"main": [[{"node": "Abweichung ueber Schwelle?", "type": "main", "index": 0}, {"node": "Historie ins Sheet schreiben", "type": "main", "index": 0}]]},
+    "Abweichung ueber Schwelle?": {"main": [[{"node": "Preisalarm senden", "type": "main", "index": 0}], []]}
+  },
+  "settings": {"executionOrder": "v1"},
+  "pinData": {}
+}

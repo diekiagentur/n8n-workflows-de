@@ -1,0 +1,185 @@
+{
+  "name": "Bewerbung strukturiert aufbereiten (ohne automatische Entscheidung)",
+  "meta": {
+    "beschreibung": "Nimmt Bewerbungen ueber ein Formular mit Lebenslauf-Upload entgegen, extrahiert den Text und laesst die KI die Qualifikationen strukturiert zusammenfassen und den hinterlegten Stellenanforderungen gegenueberstellen. Der Bewerber erhaelt eine Eingangsbestaetigung, die Personalabteilung ein lesbares Dossier. Bewusst OHNE Score, Ranking oder automatische Absage: KI-Systeme, die bei der Personalauswahl eingesetzt werden, gelten nach Anhang III des EU AI Act als Hochrisiko-Systeme; die entsprechenden Pflichten gelten seit dem 02.08.2026. Automatisierte Auswahl- oder Ablehnungsentscheidungen loesen strenge Anforderungen aus (Risikomanagement, Protokollierung, menschliche Aufsicht, Konformitaetsbewertung) und beruehren zusaetzlich Art. 22 DSGVO sowie das AGG. Dieser Workflow bleibt deshalb reine Entscheidungshilfe: Er strukturiert und belegt, entschieden wird ausschliesslich von Menschen. DSGVO-Hinweis: Bewerberdaten sind besonders sensibel — AV-Vertrag mit dem KI-Anbieter schliessen oder lokales Modell (Ollama) nutzen und die Loeschfrist von sechs Monaten nach Absage einhalten.",
+    "kategorie": "Personal & HR",
+    "schwierigkeit": "fortgeschritten",
+    "benoetigt": ["n8n-Formular", "OpenAI-API (oder Ollama)", "SMTP-Postausgang"],
+    "quelle": "https://die-ki-agentur.de/n8n-agentur/"
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Bewerbungen aufbereiten — entscheiden tun Menschen\n\n**Ablauf:** Formular mit Lebenslauf → PDF-Text extrahieren → Stellenprofil laden → KI fasst Qualifikationen strukturiert zusammen und stellt sie den Anforderungen gegenueber → Eingangsbestaetigung an den Bewerber, Dossier an HR.\n\n**Was dieser Workflow absichtlich NICHT tut:**\nKeine Punktzahl, kein Ranking, keine Eignungsnote, keine automatische Absage. KI in der Personalauswahl faellt unter Anhang III des EU AI Act (Hochrisiko, Pflichten seit 02.08.2026); automatisierte Auswahlentscheidungen beruehren zusaetzlich Art. 22 DSGVO und das AGG. Das Dossier ist Vorbereitung — die Sichtung bleibt beim Menschen.\n\n**Vor dem Start:**\n1. Formularpfad `bewerbung` freigeben und im Stellenportal verlinken\n2. Stellenanforderungen im Node „Stellenprofil laden“ pflegen (je Stelle Muss- und Kann-Kriterien)\n3. Absenderadresse und `HIER_HR_MAILADRESSE_EINTRAGEN` in den Mail-Nodes setzen\n4. AV-Vertrag mit dem KI-Anbieter schliessen oder lokales Modell nutzen; Loeschfrist (6 Monate nach Absage) im Bewerbermanagement hinterlegen\n5. Beschaeftigte, die das Dossier lesen, nach Art. 4 EU AI Act im Umgang mit KI-Ausgaben schulen\n\n**Betreuung:** https://die-ki-agentur.de/n8n-agentur/",
+        "height": 620,
+        "width": 500
+      },
+      "id": "note-doku",
+      "name": "Kurzanleitung",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-180, 40]
+    },
+    {
+      "parameters": {
+        "path": "bewerbung",
+        "formTitle": "Bewerbung einreichen",
+        "formDescription": "Wir freuen uns ueber Ihre Unterlagen. Ihre Bewerbung wird von unserer Personalabteilung persoenlich gesichtet; eine automatische Vorauswahl findet nicht statt.",
+        "formFields": {
+          "values": [
+            {"fieldLabel": "Name", "fieldType": "text", "requiredField": true},
+            {"fieldLabel": "E-Mail", "fieldType": "email", "requiredField": true},
+            {"fieldLabel": "Telefon", "fieldType": "text", "requiredField": false},
+            {"fieldLabel": "Stelle", "fieldType": "dropdown", "requiredField": true, "fieldOptions": {"values": [{"option": "Elektroniker Betriebstechnik (m/w/d)"}, {"option": "Buchhaltung Teilzeit (m/w/d)"}, {"option": "Kaufmaennische Sachbearbeitung (m/w/d)"}]}},
+            {"fieldLabel": "Lebenslauf", "fieldType": "file", "requiredField": true, "multipleFiles": false, "acceptFileTypes": ".pdf"},
+            {"fieldLabel": "Kurze Motivation", "fieldType": "textarea", "requiredField": false},
+            {"fieldLabel": "Frueheste Verfuegbarkeit", "fieldType": "text", "requiredField": false},
+            {"fieldLabel": "Datenschutzhinweise", "fieldType": "dropdown", "requiredField": true, "fieldOptions": {"values": [{"option": "Ich habe die Datenschutzhinweise zur Bewerbung gelesen"}]}}
+          ]
+        },
+        "options": {
+          "appendAttribution": false,
+          "respondWithOptions": {"values": {"formSubmittedText": "Vielen Dank — Ihre Bewerbung ist eingegangen. Sie erhalten gleich eine Bestaetigung per E-Mail."}}
+        }
+      },
+      "id": "trigger-formular",
+      "name": "Bewerbung entgegennehmen",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
+      "position": [380, 320]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {"caseSensitive": false, "version": 2},
+          "conditions": [
+            {"id": "hat-datei", "leftValue": "={{ Object.keys($binary || {}).length }}", "rightValue": 0, "operator": {"type": "number", "operation": "gt"}}
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "weiche-datei",
+      "name": "Lebenslauf beigefuegt?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [600, 320]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Das Formular legt die hochgeladene Datei je nach n8n-Version unter\n// `Lebenslauf`, `Lebenslauf_0` oder aehnlich ab. Statt einen Namen zu raten, wird\n// hier die erste PDF-Datei gesucht und auf den festen Schluessel `lebenslauf`\n// umgehaengt — so bleibt der Extraktions-Node stabil, auch wenn sich das\n// Formularfeld spaeter aendert.\nconst raus = [];\nfor (const eintrag of $input.all()) {\n  const bin = eintrag.binary ?? {};\n  const schluessel = Object.keys(bin).find((k) => String(bin[k].mimeType || '').includes('pdf')) ?? Object.keys(bin)[0];\n  if (!schluessel) continue;\n\n  raus.push({\n    json: {\n      ...eintrag.json,\n      dateiname: bin[schluessel].fileName ?? 'lebenslauf.pdf',\n      dateigroesse: bin[schluessel].fileSize ?? null,\n      eingang: new Date().toLocaleString('de-DE', { timeZone: 'Europe/Berlin' })\n    },\n    binary: { lebenslauf: bin[schluessel] }\n  });\n}\nreturn raus;"
+      },
+      "id": "datei-normalisieren",
+      "name": "Lebenslauf-Datei normalisieren",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [820, 180]
+    },
+    {
+      "parameters": {
+        "operation": "pdf",
+        "binaryPropertyName": "lebenslauf",
+        "options": {}
+      },
+      "id": "pdf-text",
+      "name": "Lebenslauf-Text extrahieren",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [1040, 180]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Anforderungskatalog je Stelle — hier pflegt die Personalabteilung, wogegen\n// abgeglichen wird. Warum im Workflow und nicht im Prompt: So steht schwarz auf\n// weiss, welche Kriterien angelegt wurden, und die Formulierung bleibt\n// nachvollziehbar dokumentiert (Transparenzpflicht, Nachweis gegenueber dem\n// Betriebsrat).\nconst STELLENPROFILE = {\n  'Elektroniker Betriebstechnik (m/w/d)': {\n    muss: [\n      'Abgeschlossene Ausbildung als Elektroniker/in fuer Betriebstechnik oder vergleichbar',\n      'Kenntnisse in Schaltschrankbau und Fehlersuche',\n      'Fuehrerschein Klasse B'\n    ],\n    kann: [\n      'Erfahrung mit SPS-Programmierung (Siemens TIA)',\n      'Schaltberechtigung bis 1 kV',\n      'Bereitschaft zur Rufbereitschaft'\n    ]\n  },\n  'Buchhaltung Teilzeit (m/w/d)': {\n    muss: [\n      'Kaufmaennische Ausbildung oder vergleichbare Qualifikation',\n      'Sichere Anwendung einer Buchhaltungssoftware (z. B. DATEV, Lexware)',\n      'Erfahrung in der Debitoren- und Kreditorenbuchhaltung'\n    ],\n    kann: [\n      'Weiterbildung zum Finanzbuchhalter/in',\n      'Erfahrung mit Umsatzsteuervoranmeldung',\n      'Englischkenntnisse'\n    ]\n  },\n  'Kaufmaennische Sachbearbeitung (m/w/d)': {\n    muss: [\n      'Kaufmaennische Ausbildung',\n      'Sicherer Umgang mit MS Office',\n      'Sehr gute Deutschkenntnisse in Wort und Schrift'\n    ],\n    kann: [\n      'Erfahrung mit ERP-Systemen',\n      'Erfahrung in der Auftragsabwicklung',\n      'Englischkenntnisse'\n    ]\n  }\n};\n\nconst STANDARD = { muss: ['Passende abgeschlossene Ausbildung oder Studium'], kann: ['Berufserfahrung im ausgeschriebenen Bereich'] };\n\nconst raus = [];\nfor (const eintrag of $input.all()) {\n  const stamm = $('Lebenslauf-Datei normalisieren').first().json;\n  const stelle = stamm['Stelle'] ?? '';\n  const profil = STELLENPROFILE[stelle] ?? STANDARD;\n\n  // Ein leerer Text bedeutet meist ein gescanntes PDF ohne Textebene. Das muss\n  // sichtbar werden, sonst halluziniert die KI auf einer leeren Grundlage.\n  const text = String(eintrag.json.text ?? '').trim();\n\n  raus.push({\n    json: {\n      bewerber_name: stamm['Name'] ?? '',\n      bewerber_mail: stamm['E-Mail'] ?? '',\n      bewerber_telefon: stamm['Telefon'] ?? '',\n      stelle,\n      motivation: stamm['Kurze Motivation'] ?? '',\n      verfuegbarkeit_angabe: stamm['Frueheste Verfuegbarkeit'] ?? '',\n      dateiname: stamm.dateiname,\n      eingang: stamm.eingang,\n      anforderungen_muss: profil.muss,\n      anforderungen_kann: profil.kann,\n      profil_gefunden: Boolean(STELLENPROFILE[stelle]),\n      lebenslauf_text: text,\n      text_laenge: text.length,\n      text_verwertbar: text.length >= 200,\n      pruefhinweis: text.length < 200 ? 'Lebenslauf enthaelt kaum Text — vermutlich ein Scan ohne Textebene. Bitte manuell sichten.' : null\n    }\n  });\n}\nreturn raus;"
+      },
+      "id": "stellenprofil",
+      "name": "Stellenprofil laden",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1260, 180]
+    },
+    {
+      "parameters": {
+        "modelId": {"__rl": true, "value": "gpt-4.1-mini", "mode": "list"},
+        "messages": {
+          "values": [
+            {"role": "system", "content": "Du bereitest Bewerbungsunterlagen fuer die Personalabteilung auf. Du triffst KEINE Entscheidung. Verboten sind: Punktzahlen, Prozentwerte, Noten, Rankings, Eignungsurteile, Empfehlungen fuer oder gegen eine Einladung, Formulierungen wie 'geeignet', 'ungeeignet', 'passt gut'. Verboten ist ausserdem jede Auswertung von Alter, Geburtsdatum, Geschlecht, Herkunft, Nationalitaet, Foto, Familienstand, Religion, Behinderung oder Gesundheitszustand (AGG). Antworte AUSSCHLIESSLICH mit einem JSON-Objekt, kein Markdown. Felder: aktuelle_taetigkeit (string oder null), berufserfahrung_jahre (number oder null), stationen (Array aus {zeitraum, arbeitgeber, rolle}), ausbildung (Array aus {zeitraum, abschluss, einrichtung}), fachkenntnisse (Array von Strings), zertifikate (Array von Strings), sprachen (Array aus {sprache, niveau}), verfuegbarkeit (string oder null), anforderungsabgleich (Array aus {anforderung, art: 'muss' oder 'kann', beleg: woertlicher Beleg aus dem Lebenslauf oder null, einschaetzung: genau einer von 'im Lebenslauf belegt', 'teilweise belegt', 'im Lebenslauf nicht gefunden'}), offene_fragen (Array von Strings fuer das Gespraech), auffaelligkeiten (Array von Strings, nur sachliche Beobachtungen wie unklare Zeitraeume). Jede Anforderung aus der Liste muss genau einmal im anforderungsabgleich auftauchen. 'im Lebenslauf nicht gefunden' bedeutet ausdruecklich nicht 'fehlt' — der Beleg kann in anderen Unterlagen stehen. Nichts erfinden; ohne Beleg im Text: null."},
+            {"role": "user", "content": "=Ausgeschriebene Stelle: {{ $json.stelle }}\n\nMuss-Anforderungen:\n{{ $json.anforderungen_muss.map(a => '- ' + a).join('\\n') }}\n\nKann-Anforderungen:\n{{ $json.anforderungen_kann.map(a => '- ' + a).join('\\n') }}\n\nLebenslauf (Rohtext):\n{{ $json.lebenslauf_text }}"}
+          ]
+        },
+        "jsonOutput": true,
+        "options": {"temperature": 0}
+      },
+      "id": "ki-struktur",
+      "name": "Qualifikationen strukturieren",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [1480, 180]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Baut aus der KI-Struktur ein lesbares Dossier fuer die Personalabteilung.\n// Zwei bewusste Sicherungen:\n// 1) Erfindet das Modell trotz Prompt doch ein Score-, Ranking- oder Empfehlungsfeld,\n//    wird es hier entfernt. Was nicht im Dossier steht, kann auch niemand als\n//    Auswahlkriterium missverstehen.\n// 2) Es wird nur gezaehlt, wie viele Anforderungen BELEGT sind — nicht bewertet.\n//    Die Zahl steht als Navigationshilfe im Text, nicht als Note.\nconst VERBOTENE_FELDER = ['score', 'punktzahl', 'punkte', 'bewertung', 'ranking', 'rang', 'note', 'eignung', 'eignungsgrad', 'match', 'matching', 'match_score', 'empfehlung', 'entscheidung', 'prozent'];\n\nconst raus = [];\nfor (const eintrag of $input.all()) {\n  const k = eintrag.json.message?.content ?? eintrag.json;\n  const stamm = $('Stellenprofil laden').first().json;\n\n  const sauber = {};\n  for (const [feld, wert] of Object.entries(k)) {\n    if (VERBOTENE_FELDER.some((v) => feld.toLowerCase().includes(v))) continue;\n    sauber[feld] = wert;\n  }\n\n  const abgleich = Array.isArray(sauber.anforderungsabgleich) ? sauber.anforderungsabgleich : [];\n  const belegt = abgleich.filter((a) => a.einschaetzung === 'im Lebenslauf belegt').length;\n\n  const zeile = (a) => {\n    const marke = a.einschaetzung === 'im Lebenslauf belegt' ? '[belegt]' : (a.einschaetzung === 'teilweise belegt' ? '[teilweise]' : '[nicht gefunden]');\n    return `${marke} (${a.art === 'muss' ? 'Muss' : 'Kann'}) ${a.anforderung}\\n        Beleg: ${a.beleg || 'kein Beleg im Lebenslauf'}`;\n  };\n\n  const stationen = (sauber.stationen || []).map((s) => `- ${s.zeitraum || '?'}: ${s.rolle || '?'} bei ${s.arbeitgeber || '?'}`).join('\\n');\n  const ausbildung = (sauber.ausbildung || []).map((s) => `- ${s.zeitraum || '?'}: ${s.abschluss || '?'} (${s.einrichtung || '?'})`).join('\\n');\n  const sprachen = (sauber.sprachen || []).map((s) => `${s.sprache}: ${s.niveau}`).join(', ');\n\n  const dossier = [\n    `Bewerbung: ${stamm.bewerber_name} — ${stamm.stelle}`,\n    `Eingang: ${stamm.eingang} | Datei: ${stamm.dateiname}`,\n    `Kontakt: ${stamm.bewerber_mail} / ${stamm.bewerber_telefon || 'keine Telefonnummer angegeben'}`,\n    '',\n    'WERDEGANG',\n    stationen || 'keine Stationen erkannt',\n    '',\n    'AUSBILDUNG',\n    ausbildung || 'keine Angaben erkannt',\n    '',\n    `FACHKENNTNISSE: ${(sauber.fachkenntnisse || []).join(', ') || 'keine erkannt'}`,\n    `ZERTIFIKATE: ${(sauber.zertifikate || []).join(', ') || 'keine erkannt'}`,\n    `SPRACHEN: ${sprachen || 'keine Angaben'}`,\n    `VERFUEGBARKEIT: ${sauber.verfuegbarkeit || stamm.verfuegbarkeit_angabe || 'keine Angabe'}`,\n    '',\n    `ANFORDERUNGSABGLEICH (${belegt} von ${abgleich.length} Anforderungen im Lebenslauf belegt — dies ist keine Bewertung)`,\n    abgleich.map(zeile).join('\\n') || 'kein Abgleich moeglich',\n    '',\n    'FRAGEN FUERS GESPRAECH',\n    (sauber.offene_fragen || []).map((f) => `- ${f}`).join('\\n') || 'keine',\n    '',\n    'SACHLICHE BEOBACHTUNGEN',\n    (sauber.auffaelligkeiten || []).map((f) => `- ${f}`).join('\\n') || 'keine',\n    stamm.pruefhinweis ? `\\nACHTUNG: ${stamm.pruefhinweis}` : '',\n    stamm.profil_gefunden ? '' : '\\nACHTUNG: Fuer diese Stelle ist kein Anforderungsprofil hinterlegt — es wurde gegen ein allgemeines Standardprofil abgeglichen.'\n  ].join('\\n');\n\n  raus.push({\n    json: {\n      ...stamm,\n      lebenslauf_text: undefined, // Rohtext nicht weiterschleppen — Datenminimierung\n      struktur: sauber,\n      anforderungen_gesamt: abgleich.length,\n      anforderungen_belegt: belegt,\n      dossier_text: dossier,\n      automatische_entscheidung: false,\n      hinweis_ai_act: 'Diese Zusammenfassung ist KI-gestuetzt und dient ausschliesslich der Vorbereitung. Es wurde weder bewertet noch vorsortiert noch abgelehnt. Die Auswahlentscheidung trifft die Personalabteilung.'\n    }\n  });\n}\nreturn raus;"
+      },
+      "id": "dossier",
+      "name": "Dossier aufbereiten",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1700, 180]
+    },
+    {
+      "parameters": {
+        "fromEmail": "HIER_ABSENDERADRESSE_EINTRAGEN",
+        "toEmail": "={{ $json.bewerber_mail }}",
+        "subject": "=Ihre Bewerbung ist eingegangen: {{ $json.stelle }}",
+        "emailFormat": "text",
+        "message": "=Guten Tag {{ $json.bewerber_name }},\n\nvielen Dank fuer Ihre Bewerbung auf die Stelle {{ $json.stelle }}. Ihre Unterlagen ({{ $json.dateiname }}) sind am {{ $json.eingang }} bei uns eingegangen.\n\nSo geht es weiter: Unsere Personalabteilung sichtet Ihre Unterlagen persoenlich. Eine Rueckmeldung erhalten Sie in der Regel innerhalb von zwei Wochen.\n\nHinweis zur Transparenz: Zur Vorbereitung der Sichtung erstellen wir mit KI-Unterstuetzung eine strukturierte Zusammenfassung Ihres Lebenslaufs. Eine automatisierte Bewertung, Vorauswahl oder Ablehnung findet nicht statt — jede Entscheidung trifft ein Mensch.\n\nIhre Daten speichern wir bis zum Abschluss des Verfahrens und loeschen sie spaetestens sechs Monate nach dessen Ende. Auskunft und Loeschung koennen Sie jederzeit unter dieser Adresse verlangen.\n\nMit freundlichen Gruessen\nIhre Personalabteilung",
+        "options": {}
+      },
+      "id": "mail-bewerber",
+      "name": "Eingangsbestaetigung an Bewerber",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [1920, 80]
+    },
+    {
+      "parameters": {
+        "fromEmail": "HIER_ABSENDERADRESSE_EINTRAGEN",
+        "toEmail": "HIER_HR_MAILADRESSE_EINTRAGEN",
+        "subject": "=Neue Bewerbung: {{ $json.bewerber_name }} — {{ $json.stelle }}",
+        "emailFormat": "text",
+        "message": "={{ $json.dossier_text }}\n\n----------------------------------------\n{{ $json.hinweis_ai_act }}\nGrundlage: KI in der Personalauswahl ist ein Hochrisiko-Anwendungsfall nach Anhang III EU AI Act (Pflichten seit 02.08.2026). Bitte den Lebenslauf im Original sichten, bevor Sie entscheiden.\nOriginaldatei: {{ $json.dateiname }} (im Bewerbungsformular hinterlegt)",
+        "options": {}
+      },
+      "id": "mail-hr",
+      "name": "Dossier an Personalabteilung",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [1920, 300]
+    },
+    {
+      "parameters": {
+        "fromEmail": "HIER_ABSENDERADRESSE_EINTRAGEN",
+        "toEmail": "={{ $json['E-Mail'] }}",
+        "subject": "=Ihre Bewerbung: Lebenslauf fehlt noch",
+        "emailFormat": "text",
+        "message": "=Guten Tag {{ $json['Name'] }},\n\nIhre Bewerbung auf die Stelle {{ $json['Stelle'] }} ist bei uns eingegangen — allerdings ohne Lebenslauf. Vermutlich ist der Upload nicht durchgelaufen.\n\nBitte antworten Sie einfach auf diese Mail und haengen Sie Ihren Lebenslauf als PDF an. Danach nehmen wir Ihre Bewerbung ins Verfahren auf.\n\nMit freundlichen Gruessen\nIhre Personalabteilung",
+        "options": {}
+      },
+      "id": "mail-nachforderung",
+      "name": "Fehlende Unterlagen nachfordern",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [820, 540]
+    }
+  ],
+  "connections": {
+    "Bewerbung entgegennehmen": {"main": [[{"node": "Lebenslauf beigefuegt?", "type": "main", "index": 0}]]},
+    "Lebenslauf beigefuegt?": {"main": [[{"node": "Lebenslauf-Datei normalisieren", "type": "main", "index": 0}], [{"node": "Fehlende Unterlagen nachfordern", "type": "main", "index": 0}]]},
+    "Lebenslauf-Datei normalisieren": {"main": [[{"node": "Lebenslauf-Text extrahieren", "type": "main", "index": 0}]]},
+    "Lebenslauf-Text extrahieren": {"main": [[{"node": "Stellenprofil laden", "type": "main", "index": 0}]]},
+    "Stellenprofil laden": {"main": [[{"node": "Qualifikationen strukturieren", "type": "main", "index": 0}]]},
+    "Qualifikationen strukturieren": {"main": [[{"node": "Dossier aufbereiten", "type": "main", "index": 0}]]},
+    "Dossier aufbereiten": {"main": [[{"node": "Eingangsbestaetigung an Bewerber", "type": "main", "index": 0}, {"node": "Dossier an Personalabteilung", "type": "main", "index": 0}]]}
+  },
+  "settings": {"executionOrder": "v1"},
+  "pinData": {}
+}

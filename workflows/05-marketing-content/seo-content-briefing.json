@@ -1,0 +1,202 @@
+{
+  "name": "SEO-Content-Briefing aus SERP-Analyse erstellen",
+  "meta": {
+    "beschreibung": "Die Redaktion traegt ein Keyword in ein Formular ein, der Workflow holt die aktuellen Suchergebnisse ueber eine SERP-API (Platzhalter fuer DataForSEO oder SerpAPI), wertet die Top-Treffer aus und laesst die KI daraus ein Content-Briefing bauen: Suchintention, Gliederung mit H2/H3, Fragen die der Text beantworten muss, empfohlene Wortzahl und interne Verlinkungsideen. Das Briefing landet als Zeile im Redaktions-Sheet und geht per Mail an die anfragende Person. Hinweis: Das Briefing ist ein Vorschlag auf Basis fremder Seiten — Inhalte nicht uebernehmen, sondern eigenstaendig schreiben. In das Formular gehoeren keine personenbezogenen Daten.",
+    "kategorie": "Marketing & Content",
+    "schwierigkeit": "mittel",
+    "benoetigt": ["SERP-API (DataForSEO oder SerpAPI)", "OpenAI-API (oder Ollama)", "Google Sheets", "SMTP-Postfach"],
+    "quelle": "https://die-ki-agentur.de/n8n-agentur/"
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## SEO-Content-Briefing per Formular\n\n**Ablauf:** Formular mit Keyword → Eingabe normalisieren und pruefen → SERP-API abfragen → Top-10 auswerten (Titel, Snippets, Wortarten, People-also-ask) → KI baut Briefing (Suchintention, H2/H3-Gliederung, Pflichtfragen, Wortzahl) → Markdown erzeugen → Redaktions-Sheet + Mail an die anfragende Person.\n\n**Vor dem Start:**\n1. Im Node `SERP-Daten abrufen` die URL des Anbieters eintragen:\n   - DataForSEO: https://api.dataforseo.com/v3/serp/google/organic/live/advanced (Basic Auth)\n   - SerpAPI: https://serpapi.com/search (Query-Parameter api_key)\n   Zugangsdaten beim Import als Credential hinterlegen, nicht ins JSON schreiben.\n2. Google-Sheet `Content-Briefings` anlegen, Spalten: Angefragt am, Keyword, Zielmarkt, Seitentyp, Suchintention, Wortzahl, Gliederung, Pflichtfragen, Wettbewerber, Briefing (Markdown), Bearbeiter\n3. Sheet-ID und Absenderadresse (HIER_...) ersetzen\n4. Formular-URL im Team teilen — sie ist oeffentlich erreichbar, deshalb keine Kundendaten eintragen lassen\n\n**Grenze:** Der Workflow ersetzt keine Keyword-Recherche. Er beschreibt, was fuer dieses eine Keyword bereits rankt.\n\n**Betreuung:** https://die-ki-agentur.de/n8n-agentur/",
+        "height": 660,
+        "width": 500
+      },
+      "id": "note-doku",
+      "name": "Kurzanleitung",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-180, -100]
+    },
+    {
+      "parameters": {
+        "path": "seo-briefing",
+        "formTitle": "SEO-Content-Briefing anfordern",
+        "formDescription": "Keyword eintragen, das Briefing kommt in wenigen Minuten per E-Mail. Bitte keine Kunden- oder Personendaten eintragen.",
+        "formFields": {"values": [
+          {"fieldLabel": "Haupt-Keyword", "placeholder": "z. B. waermepumpe foerderung 2026", "requiredField": true},
+          {"fieldLabel": "Zielgruppe", "placeholder": "z. B. Hausbesitzer mit Sanierungsabsicht", "requiredField": true},
+          {"fieldLabel": "Zielmarkt", "fieldType": "dropdown", "fieldOptions": {"values": [{"option": "Deutschland (de)"}, {"option": "Oesterreich (de)"}, {"option": "Schweiz (de)"}]}, "requiredField": true},
+          {"fieldLabel": "Seitentyp", "fieldType": "dropdown", "fieldOptions": {"values": [{"option": "Ratgeber / Blogartikel"}, {"option": "Leistungsseite"}, {"option": "Produktseite"}, {"option": "Glossar / Definition"}, {"option": "Vergleich / Kaufberatung"}]}, "requiredField": true},
+          {"fieldLabel": "E-Mail fuer das Briefing", "fieldType": "email", "requiredField": true}
+        ]},
+        "options": {"appendAttribution": false}
+      },
+      "id": "trigger-formular",
+      "name": "Keyword-Formular",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
+      "position": [400, 220]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Freitext aus einem Formular ist selten sauber: Grossschreibung, doppelte\n// Leerzeichen, versehentlich ganze Fragen statt eines Keywords. Ohne\n// Normalisierung liefert die SERP-API entweder Muell oder gar nichts.\nconst raus = [];\n\nfor (const eintrag of $input.all()) {\n  const f = eintrag.json || {};\n  const keyword = String(f['Haupt-Keyword'] || '').trim().replace(/\\s+/g, ' ').toLowerCase();\n  const zielmarkt = String(f['Zielmarkt'] || 'Deutschland (de)');\n\n  // Die SERP-APIs erwarten englische Laendernamen, das Formular zeigt deutsche.\n  let land = 'Germany';\n  if (zielmarkt.includes('Oesterreich')) land = 'Austria';\n  if (zielmarkt.includes('Schweiz')) land = 'Switzerland';\n\n  const woerter = keyword ? keyword.split(' ').length : 0;\n  const maengel = [];\n  if (keyword.length < 3) maengel.push('Keyword ist zu kurz oder leer');\n  if (woerter > 8) maengel.push('Das sieht nach einem ganzen Satz aus, nicht nach einem Keyword');\n  if (/https?:\\/\\//.test(keyword)) maengel.push('Bitte ein Keyword eintragen, keine URL');\n\n  raus.push({\n    json: {\n      keyword,\n      wortanzahl_keyword: woerter,\n      zielgruppe: String(f['Zielgruppe'] || '').trim(),\n      zielmarkt,\n      land,\n      sprachcode: 'de',\n      seitentyp: String(f['Seitentyp'] || 'Ratgeber / Blogartikel'),\n      empfaenger: String(f['E-Mail fuer das Briefing'] || '').trim(),\n      angefragt_am: new Date().toLocaleDateString('de-DE'),\n      eingabe_brauchbar: maengel.length === 0,\n      eingabe_maengel: maengel.join('; ')\n    }\n  });\n}\nreturn raus;"
+      },
+      "id": "eingabe-aufbereiten",
+      "name": "Anfrage aufbereiten",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [620, 220]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {"caseSensitive": true, "version": 2},
+          "conditions": [{
+            "id": "brauchbar",
+            "leftValue": "={{ $json.eingabe_brauchbar }}",
+            "rightValue": true,
+            "operator": {"type": "boolean", "operation": "true", "singleValue": true}
+          }],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "weiche-eingabe",
+      "name": "Keyword brauchbar?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [840, 220]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "HIER_SERP_API_URL_EINTRAGEN",
+        "sendHeaders": true,
+        "headerParameters": {"parameters": [{"name": "Content-Type", "value": "application/json"}]},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify([{ keyword: $json.keyword, location_name: $json.land, language_code: $json.sprachcode, device: 'desktop', depth: 20 }]) }}",
+        "options": {"timeout": 30000, "response": {"response": {"neverError": true}}}
+      },
+      "id": "serp-abrufen",
+      "name": "SERP-Daten abrufen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1060, 120],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 2
+    },
+    {
+      "parameters": {
+        "jsCode": "// Die beiden gaengigen Anbieter liefern voellig unterschiedliche Strukturen.\n// Statt den Nutzer auf einen festzunageln, lesen wir beide Formen — und liefern\n// notfalls ein leeres, aber gueltiges Ergebnis, damit die KI trotzdem ein\n// Briefing auf Basis von Keyword und Seitentyp bauen kann.\nconst anfrage = $('Anfrage aufbereiten').item.json;\nconst antwort = $input.first().json || {};\n\nlet treffer = [];\nlet fragen = [];\n\n// Variante DataForSEO\nconst dfs = antwort.tasks?.[0]?.result?.[0]?.items;\nif (Array.isArray(dfs)) {\n  treffer = dfs.filter(i => i.type === 'organic').map(i => ({ position: i.rank_group, titel: i.title, beschreibung: i.description, url: i.url, domain: i.domain }));\n  const paa = dfs.find(i => i.type === 'people_also_ask');\n  fragen = (paa?.items || []).map(i => i.title).filter(Boolean);\n}\n\n// Variante SerpAPI\nif (treffer.length === 0 && Array.isArray(antwort.organic_results)) {\n  treffer = antwort.organic_results.map(i => ({ position: i.position, titel: i.title, beschreibung: i.snippet, url: i.link, domain: (i.displayed_link || '').split('/')[0] }));\n  fragen = (antwort.related_questions || []).map(i => i.question).filter(Boolean);\n}\n\nconst top = treffer.slice(0, 10);\n\n// Grobe Laengenindikation: Wie ausfuehrlich sind die Snippets der Top-Treffer?\n// Ersetzt keine echte Wortzahlmessung, gibt der KI aber einen Anhaltspunkt.\nconst snippetLaenge = top.length\n  ? Math.round(top.reduce((s, t) => s + String(t.beschreibung || '').length, 0) / top.length)\n  : 0;\n\n// Verzeichnisse und Portale zeigen an, ob das Keyword ueberhaupt fuer eine\n// eigene Unternehmensseite erreichbar ist oder von Aggregatoren besetzt wird.\nconst portale = ['wikipedia.org', 'amazon.de', 'idealo.de', 'gelbeseiten.de', 'youtube.com', 'reddit.com', 'gutefrage.net'];\nconst portalanteil = top.length ? top.filter(t => portale.some(p => String(t.domain || '').includes(p))).length / top.length : 0;\n\nreturn [{\n  json: {\n    ...anfrage,\n    serp_verfuegbar: top.length > 0,\n    anzahl_treffer: top.length,\n    top_ergebnisse: top,\n    verwandte_fragen: fragen.slice(0, 12),\n    durchschnittliche_snippet_laenge: snippetLaenge,\n    portalanteil_prozent: Math.round(portalanteil * 100),\n    serp_hinweis: top.length === 0 ? 'Keine SERP-Daten erhalten - Briefing basiert nur auf Keyword und Seitentyp. API-Zugang und URL pruefen.' : ''\n  }\n}];"
+      },
+      "id": "serp-analysieren",
+      "name": "Top-Ergebnisse analysieren",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1280, 120]
+    },
+    {
+      "parameters": {
+        "modelId": {"__rl": true, "value": "gpt-4.1-mini", "mode": "list"},
+        "messages": {"values": [
+          {"role": "system", "content": "Du bist SEO-Redaktionsleiter und erstellst Content-Briefings fuer deutschsprachige Texte. Antworte AUSSCHLIESSLICH mit einem JSON-Objekt, keine Erklaerung.\n\nFelder:\n- suchintention (string): informational, kommerziell, transaktional oder navigational, mit einem Satz Begruendung aus den Suchergebnissen\n- nutzerfrage (string): die eine Frage, die der Suchende wirklich beantwortet haben will\n- empfohlene_wortzahl (number): realistische Zielwortzahl fuer den deutschen Text\n- wortzahl_begruendung (string)\n- gliederung (array von Objekten mit h2 (string) und h3 (array aus strings)): logischer Aufbau, 5 bis 9 H2-Abschnitte, deutsche Zwischenueberschriften, keine generischen Floskeln wie Fazit ohne Inhalt\n- pflichtfragen (array aus strings): Fragen, die der Text beantworten muss, gespeist aus den verwandten Fragen und den Luecken der Top-Treffer\n- pflichtbegriffe (array aus strings): Fachbegriffe und Entitaeten, die im Text vorkommen sollten\n- luecken (array aus strings): was die aktuellen Top-Treffer nicht liefern und wo eigener Mehrwert entsteht\n- einstiegsabsatz (string): Vorschlag fuer die ersten zwei bis drei Saetze\n- meta_title (string, maximal 60 Zeichen)\n- meta_description (string, maximal 155 Zeichen)\n- interne_verlinkung (array aus strings): Themen, auf die intern verlinkt werden sollte\n- warnung (string oder null): etwa wenn das Keyword von Portalen besetzt ist oder keine SERP-Daten vorlagen\n\nRegeln: Uebernimm keine Formulierungen aus den Suchergebnissen, sie dienen nur der Analyse. Erfinde keine Zahlen, Preise oder Foerdersaetze. Wenn keine SERP-Daten vorliegen, baue das Briefing aus Keyword, Zielgruppe und Seitentyp und setze eine entsprechende Warnung."},
+          {"role": "user", "content": "=Keyword: {{ $json.keyword }}\nZielgruppe: {{ $json.zielgruppe }}\nZielmarkt: {{ $json.zielmarkt }}\nGeplanter Seitentyp: {{ $json.seitentyp }}\nSERP-Daten vorhanden: {{ $json.serp_verfuegbar }}\nAnteil Portale/Verzeichnisse in den Top-Treffern: {{ $json.portalanteil_prozent }} Prozent\nDurchschnittliche Snippet-Laenge: {{ $json.durchschnittliche_snippet_laenge }} Zeichen\n\nTop-Ergebnisse:\n{{ JSON.stringify($json.top_ergebnisse, null, 1) }}\n\nVerwandte Fragen aus der Suche:\n{{ JSON.stringify($json.verwandte_fragen) }}"}
+        ]},
+        "jsonOutput": true,
+        "options": {"temperature": 0}
+      },
+      "id": "ki-briefing",
+      "name": "Content-Briefing erstellen",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [1500, 120]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Die KI liefert Struktur, kein lesbares Dokument. Redakteure arbeiten aber\n// nicht mit JSON — deshalb hier ein Markdown-Briefing, das sich direkt in\n// Google Docs, Notion oder das CMS kopieren laesst.\nconst analyse = $('Top-Ergebnisse analysieren').item.json;\nconst b = $input.first().json.message?.content ?? $input.first().json;\n\nconst zeilen = [];\nzeilen.push('# Content-Briefing: ' + analyse.keyword);\nzeilen.push('');\nzeilen.push('- Angefragt am: ' + analyse.angefragt_am);\nzeilen.push('- Zielgruppe: ' + analyse.zielgruppe);\nzeilen.push('- Zielmarkt: ' + analyse.zielmarkt);\nzeilen.push('- Seitentyp: ' + analyse.seitentyp);\nzeilen.push('- Suchintention: ' + (b.suchintention || 'unklar'));\nzeilen.push('- Kernfrage der Nutzer: ' + (b.nutzerfrage || '-'));\nzeilen.push('- Empfohlene Wortzahl: ' + (b.empfohlene_wortzahl || '-') + ' (' + (b.wortzahl_begruendung || '') + ')');\nzeilen.push('');\nzeilen.push('## Meta-Angaben');\nzeilen.push('- Title: ' + (b.meta_title || '-'));\nzeilen.push('- Description: ' + (b.meta_description || '-'));\nzeilen.push('');\nzeilen.push('## Einstieg');\nzeilen.push(b.einstiegsabsatz || '-');\nzeilen.push('');\nzeilen.push('## Gliederung');\nconst gliederung = Array.isArray(b.gliederung) ? b.gliederung : [];\nfor (const abschnitt of gliederung) {\n  zeilen.push('### ' + (abschnitt.h2 || '-'));\n  for (const h3 of (abschnitt.h3 || [])) zeilen.push('- ' + h3);\n  zeilen.push('');\n}\nconst liste = (titel, werte) => {\n  zeilen.push('## ' + titel);\n  const w = Array.isArray(werte) ? werte : [];\n  if (w.length === 0) zeilen.push('- (keine Angabe)');\n  for (const x of w) zeilen.push('- ' + x);\n  zeilen.push('');\n};\nliste('Fragen, die beantwortet werden muessen', b.pflichtfragen);\nliste('Pflichtbegriffe und Entitaeten', b.pflichtbegriffe);\nliste('Luecken der aktuellen Top-Treffer', b.luecken);\nliste('Interne Verlinkung pruefen', b.interne_verlinkung);\n\nzeilen.push('## Aktuelle Top-Treffer');\nfor (const t of (analyse.top_ergebnisse || []).slice(0, 10)) {\n  zeilen.push('- ' + t.position + '. ' + t.titel + ' (' + t.domain + ')');\n}\nzeilen.push('');\nzeilen.push('> Hinweis: KI-generierter Vorschlag auf Basis oeffentlicher Suchergebnisse. Inhalte eigenstaendig recherchieren und formulieren, keine Passagen aus den Wettbewerberseiten uebernehmen.');\n\nconst warnungen = [];\nif (analyse.serp_hinweis) warnungen.push(analyse.serp_hinweis);\nif (b.warnung) warnungen.push(b.warnung);\nif (analyse.portalanteil_prozent >= 50) warnungen.push('Mehr als die Haelfte der Top-Treffer sind Portale oder Verzeichnisse - eigene Rankingchancen pruefen.');\n\nreturn [{\n  json: {\n    keyword: analyse.keyword,\n    zielmarkt: analyse.zielmarkt,\n    seitentyp: analyse.seitentyp,\n    empfaenger: analyse.empfaenger,\n    angefragt_am: analyse.angefragt_am,\n    suchintention: b.suchintention || '',\n    empfohlene_wortzahl: b.empfohlene_wortzahl || 0,\n    gliederung_kurz: gliederung.map(a => a.h2).join(' | '),\n    pflichtfragen_kurz: (b.pflichtfragen || []).join(' | '),\n    wettbewerber: (analyse.top_ergebnisse || []).slice(0, 5).map(t => t.domain).join(', '),\n    warnungen: warnungen.join(' '),\n    briefing_markdown: zeilen.join('\\n')\n  }\n}];"
+      },
+      "id": "briefing-formatieren",
+      "name": "Briefing als Dokument aufbereiten",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1720, 120]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {"__rl": true, "value": "HIER_SHEET_ID_EINTRAGEN", "mode": "id"},
+        "sheetName": {"__rl": true, "value": "Content-Briefings", "mode": "name"},
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Angefragt am": "={{ $json.angefragt_am }}",
+            "Keyword": "={{ $json.keyword }}",
+            "Zielmarkt": "={{ $json.zielmarkt }}",
+            "Seitentyp": "={{ $json.seitentyp }}",
+            "Suchintention": "={{ $json.suchintention }}",
+            "Wortzahl": "={{ $json.empfohlene_wortzahl }}",
+            "Gliederung": "={{ $json.gliederung_kurz }}",
+            "Pflichtfragen": "={{ $json.pflichtfragen_kurz }}",
+            "Wettbewerber": "={{ $json.wettbewerber }}",
+            "Briefing (Markdown)": "={{ $json.briefing_markdown }}",
+            "Bearbeiter": "={{ $json.empfaenger }}",
+            "Hinweise": "={{ $json.warnungen }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "sheet-briefing",
+      "name": "Briefing im Sheet ablegen",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1940, 120]
+    },
+    {
+      "parameters": {
+        "fromEmail": "HIER_ABSENDER_EMAIL_EINTRAGEN",
+        "toEmail": "={{ $json.empfaenger }}",
+        "subject": "=Content-Briefing: {{ $json.keyword }}",
+        "emailFormat": "text",
+        "text": "=Hallo,\n\nhier das Briefing zum Keyword \"{{ $json.keyword }}\" ({{ $json.zielmarkt }}, {{ $json.seitentyp }}).\n\nHinweise: {{ $json.warnungen || 'keine' }}\n\n{{ $json.briefing_markdown }}\n\nDas Briefing liegt zusaetzlich im Sheet Content-Briefings.\nErstellt automatisch von n8n.",
+        "options": {}
+      },
+      "id": "mail-briefing",
+      "name": "Briefing versenden",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [2160, 120]
+    },
+    {
+      "parameters": {
+        "assignments": {"assignments": [
+          {"id": "grund", "name": "abbruchgrund", "value": "={{ $json.eingabe_maengel }}", "type": "string"},
+          {"id": "aktion", "name": "naechster_schritt", "value": "Formular erneut ausfuellen - ein Keyword aus zwei bis fuenf Woertern, keine ganze Frage und keine URL", "type": "string"},
+          {"id": "kw", "name": "eingegeben", "value": "={{ $json.keyword }}", "type": "string"}
+        ]},
+        "options": {}
+      },
+      "id": "eingabe-abbruch",
+      "name": "Eingabe unbrauchbar",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1060, 380]
+    }
+  ],
+  "connections": {
+    "Keyword-Formular": {"main": [[{"node": "Anfrage aufbereiten", "type": "main", "index": 0}]]},
+    "Anfrage aufbereiten": {"main": [[{"node": "Keyword brauchbar?", "type": "main", "index": 0}]]},
+    "Keyword brauchbar?": {"main": [[{"node": "SERP-Daten abrufen", "type": "main", "index": 0}], [{"node": "Eingabe unbrauchbar", "type": "main", "index": 0}]]},
+    "SERP-Daten abrufen": {"main": [[{"node": "Top-Ergebnisse analysieren", "type": "main", "index": 0}]]},
+    "Top-Ergebnisse analysieren": {"main": [[{"node": "Content-Briefing erstellen", "type": "main", "index": 0}]]},
+    "Content-Briefing erstellen": {"main": [[{"node": "Briefing als Dokument aufbereiten", "type": "main", "index": 0}]]},
+    "Briefing als Dokument aufbereiten": {"main": [[{"node": "Briefing im Sheet ablegen", "type": "main", "index": 0}]]},
+    "Briefing im Sheet ablegen": {"main": [[{"node": "Briefing versenden", "type": "main", "index": 0}]]}
+  },
+  "settings": {"executionOrder": "v1"},
+  "pinData": {}
+}

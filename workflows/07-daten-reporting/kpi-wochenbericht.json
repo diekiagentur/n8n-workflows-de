@@ -1,0 +1,215 @@
+{
+  "name": "KPI-Wochenbericht an die Geschaeftsfuehrung",
+  "meta": {
+    "beschreibung": "Sammelt montags um 7 Uhr die Zahlen der Vorwoche aus zwei Quellen - Umsaetze aus Google Sheets und offene Angebote aus der Warenwirtschaft per HTTP-API - und berechnet Umsatz, Auftragseingang, Angebots-Conversion und die Veraenderung zur Vorwoche in Prozent. Eine KI formuliert dazu einen nuechternen Kommentar, der nur Auffaelligkeiten benennt statt Zahlen zu wiederholen. Fehlt eine Datenquelle, geht der Bericht trotzdem raus - mit klarem Hinweis auf die Luecke statt mit falschen Zahlen. DSGVO- und EU-AI-Act-Hinweis: An das Modell gehen ausschliesslich aggregierte Kennzahlen, keine Kunden- oder Mitarbeiternamen; der Kommentar ist im Bericht als maschinell erzeugt gekennzeichnet.",
+    "kategorie": "Daten & Reporting",
+    "schwierigkeit": "mittel",
+    "benoetigt": ["Google Sheets", "HTTP-API der Warenwirtschaft", "OpenAI-API (oder Ollama)", "SMTP-Postfach"],
+    "quelle": "https://die-ki-agentur.de/n8n-agentur/"
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## KPI-Wochenbericht\n\n**Ablauf:** Montag 7 Uhr → Berichtszeitraum berechnen → Umsaetze aus Google Sheets + Angebote per API → Kennzahlen und Vorwochenvergleich → KI-Kommentar → Mail an die Geschaeftsfuehrung.\n\n**Kennzahlen im Bericht:**\n- Umsatz der Vorwoche und Veraenderung zur Woche davor in Prozent\n- Anzahl Rechnungen und durchschnittlicher Rechnungsbetrag\n- offene Angebote (Anzahl und Volumen), davon aeltere als 30 Tage\n- Angebots-Conversion in Prozent, im Vergleich zur Vorwoche\n\n**Vor dem Start:**\n1. Google-Sheet `Umsaetze` mit den Spalten: Datum, Rechnungsnummer, Kunde, Betrag\n2. Sheet-ID eintragen (HIER_SHEET_ID_EINTRAGEN)\n3. API-URL der Warenwirtschaft und den Token-Header im HTTP-Node ersetzen (HIER_API_URL_EINTRAGEN / HIER_API_TOKEN_EINTRAGEN). Die erwartete Antwort ist eine Liste von Angeboten mit `datum`, `betrag`, `status` (offen/gewonnen/verloren) - andere Feldnamen im Code-Node anpassen.\n4. Empfaengeradresse der Geschaeftsfuehrung eintragen\n5. Schwellen fuer Auffaelligkeiten im Code-Node `Kennzahlen berechnen` an den Betrieb anpassen (Voreinstellung: 15 Prozent Umsatzaenderung)\n\n**Hinweis:** An die KI gehen nur aggregierte Zahlen, keine Kunden- oder Mitarbeiternamen. Der Kommentar ist im Bericht als maschinell erzeugt gekennzeichnet.\n\n**Betreuung:** https://die-ki-agentur.de/n8n-agentur/",
+        "height": 620,
+        "width": 460
+      },
+      "id": "note-doku",
+      "name": "Kurzanleitung",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-140, -60]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {"field": "weeks", "weeksInterval": 1, "triggerAtDay": [1], "triggerAtHour": 7, "triggerAtMinute": 0}
+          ]
+        }
+      },
+      "id": "trigger-montag",
+      "name": "Montags um 7 Uhr",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [380, 340]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Der Zeitraum wird einmal zentral bestimmt und an alle Quellen weitergereicht.\n// Wuerde jede Quelle selbst rechnen, verschieben sich die Fenster um einen Tag,\n// sobald der Lauf einmal nachts haengen bleibt - und der Vorwochenvergleich\n// vergleicht Aepfel mit Birnen.\n\nfunction montagVor(wochen, bezug) {\n  const d = new Date(bezug);\n  d.setUTCHours(0, 0, 0, 0);\n  const wochentag = (d.getUTCDay() + 6) % 7;   // Montag = 0, Sonntag = 6\n  d.setUTCDate(d.getUTCDate() - wochentag - wochen * 7);\n  return d;\n}\n\nfunction iso(d) {\n  return d.toISOString().slice(0, 10);\n}\n\nfunction de(d) {\n  return String(d.getUTCDate()).padStart(2, '0') + '.' + String(d.getUTCMonth() + 1).padStart(2, '0') + '.' + d.getUTCFullYear();\n}\n\nconst heute = new Date();\nconst startWoche = montagVor(1, heute);              // Montag der abgeschlossenen Woche\nconst endeWoche = new Date(startWoche); endeWoche.setUTCDate(endeWoche.getUTCDate() + 6);\nconst startVorwoche = montagVor(2, heute);\nconst endeVorwoche = new Date(startVorwoche); endeVorwoche.setUTCDate(endeVorwoche.getUTCDate() + 6);\n\nreturn [{\n  json: {\n    woche_von: iso(startWoche),\n    woche_bis: iso(endeWoche),\n    vorwoche_von: iso(startVorwoche),\n    vorwoche_bis: iso(endeVorwoche),\n    zeitraum_label: de(startWoche) + ' bis ' + de(endeWoche),\n    vorwoche_label: de(startVorwoche) + ' bis ' + de(endeVorwoche),\n    kalenderwoche: Math.ceil(((startWoche - new Date(Date.UTC(startWoche.getUTCFullYear(), 0, 1))) / 86400000 + 1) / 7),\n  },\n}];"
+      },
+      "id": "zeitraum",
+      "name": "Berichtszeitraum bestimmen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [600, 340]
+    },
+    {
+      "parameters": {
+        "documentId": {"__rl": true, "value": "HIER_SHEET_ID_EINTRAGEN", "mode": "id"},
+        "sheetName": {"__rl": true, "value": "Umsaetze", "mode": "name"},
+        "options": {}
+      },
+      "id": "sheet-umsatz",
+      "name": "Umsaetze aus Google Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [840, 220]
+    },
+    {
+      "parameters": {
+        "url": "HIER_API_URL_EINTRAGEN/angebote",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {"name": "von", "value": "={{ $json.vorwoche_von }}"},
+            {"name": "bis", "value": "={{ $json.woche_bis }}"}
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {"name": "Authorization", "value": "HIER_API_TOKEN_EINTRAGEN"},
+            {"name": "Accept", "value": "application/json"}
+          ]
+        },
+        "options": {
+          "timeout": 20000,
+          "response": {"response": {"neverError": true, "fullResponse": true}}
+        }
+      },
+      "id": "api-angebote",
+      "name": "Angebote aus Warenwirtschaft holen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [840, 460]
+    },
+    {
+      "parameters": {
+        "mode": "chooseBranch",
+        "chooseBranchMode": "waitForBoth",
+        "output": "empty",
+        "options": {}
+      },
+      "id": "merge-quellen",
+      "name": "Datenquellen zusammenfuehren",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [1080, 340]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Beide Quellen werden hier bewusst ueber ihren Node-Namen geholt und nicht ueber\n// $input: nach dem Merge liegen die Datensaetze sonst vermischt vor und man kann\n// Umsatzzeilen nicht mehr von Angebotszeilen unterscheiden.\n\nconst UMSATZ_AUFFAELLIG_PROZENT = 15;   // ab hier gehoert die Abweichung in den Kommentar\nconst ANGEBOT_ALT_TAGE = 30;\n\nfunction alsBetrag(wert) {\n  if (typeof wert === 'number') return wert;\n  const s = String(wert ?? '').replace(/[^0-9,.\\-]/g, '');\n  if (!s) return 0;\n  return Number(s.replace(/\\./g, '').replace(',', '.')) || 0;\n}\n\n// Sheets liefert TT.MM.JJJJ, APIs liefern ISO. Beides muss vergleichbar werden,\n// sonst ist jede Zeitraumabgrenzung Zufall.\nfunction alsIso(wert) {\n  if (!wert) return null;\n  const s = String(wert).trim();\n  const de = s.match(/^(\\d{1,2})\\.(\\d{1,2})\\.(\\d{4})$/);\n  if (de) return de[3] + '-' + de[2].padStart(2, '0') + '-' + de[1].padStart(2, '0');\n  const d = new Date(s);\n  return isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);\n}\n\nfunction imZeitraum(datum, von, bis) {\n  return Boolean(datum) && datum >= von && datum <= bis;\n}\n\nfunction prozentAenderung(neu, alt) {\n  // Division durch Null bei fehlender Vorwoche abfangen - sonst steht \"Infinity\"\n  // im Bericht der Geschaeftsfuehrung.\n  if (!alt) return null;\n  return Number((((neu - alt) / alt) * 100).toFixed(1));\n}\n\nconst z = $('Berichtszeitraum bestimmen').first().json;\nconst umsatzZeilen = $('Umsaetze aus Google Sheets').all().map((e) => e.json);\n\n// Die API-Antwort kann als Liste, unter .angebote oder unter .data kommen -\n// alle drei Faelle abfangen, statt beim ersten Formatwechsel zu scheitern.\nconst antwort = $('Angebote aus Warenwirtschaft holen').first().json;\nconst rumpf = antwort?.body ?? antwort;\nconst statusCode = Number(antwort?.statusCode ?? 200);\nconst angebote = Array.isArray(rumpf) ? rumpf : (rumpf?.angebote ?? rumpf?.data ?? []);\nconst angeboteOk = statusCode < 400 && Array.isArray(angebote);\n\nfunction umsatzSumme(von, bis) {\n  return umsatzZeilen\n    .filter((r) => imZeitraum(alsIso(r['Datum']), von, bis))\n    .reduce((s, r) => s + alsBetrag(r['Betrag']), 0);\n}\n\nfunction umsatzAnzahl(von, bis) {\n  return umsatzZeilen.filter((r) => imZeitraum(alsIso(r['Datum']), von, bis)).length;\n}\n\nconst umsatz = Number(umsatzSumme(z.woche_von, z.woche_bis).toFixed(2));\nconst umsatzVor = Number(umsatzSumme(z.vorwoche_von, z.vorwoche_bis).toFixed(2));\nconst anzahl = umsatzAnzahl(z.woche_von, z.woche_bis);\nconst anzahlVor = umsatzAnzahl(z.vorwoche_von, z.vorwoche_bis);\n\nconst heute = new Date();\nconst alleAngebote = angeboteOk ? angebote.map((a) => ({\n  datum: alsIso(a.datum ?? a.erstellt_am ?? a.date),\n  betrag: alsBetrag(a.betrag ?? a.summe ?? a.amount),\n  status: String(a.status ?? '').toLowerCase(),\n})) : [];\n\nconst offen = alleAngebote.filter((a) => a.status.startsWith('offen'));\nconst alt = offen.filter((a) => a.datum && (heute - new Date(a.datum)) / 86400000 > ANGEBOT_ALT_TAGE);\n\nfunction conversion(von, bis) {\n  const entschieden = alleAngebote.filter((a) => imZeitraum(a.datum, von, bis) && (a.status.startsWith('gewonnen') || a.status.startsWith('verloren')));\n  if (!entschieden.length) return null;\n  const gewonnen = entschieden.filter((a) => a.status.startsWith('gewonnen')).length;\n  return Number(((gewonnen / entschieden.length) * 100).toFixed(1));\n}\n\nconst conv = conversion(z.woche_von, z.woche_bis);\nconst convVor = conversion(z.vorwoche_von, z.vorwoche_bis);\nconst umsatzDelta = prozentAenderung(umsatz, umsatzVor);\n\n// Die Auffaelligkeiten werden hier berechnet und nicht der KI ueberlassen: was\n// als auffaellig gilt, ist eine betriebliche Entscheidung, keine sprachliche.\nconst auffaelligkeiten = [];\nif (umsatzDelta !== null && Math.abs(umsatzDelta) >= UMSATZ_AUFFAELLIG_PROZENT) {\n  auffaelligkeiten.push('Umsatz ' + (umsatzDelta > 0 ? 'plus' : 'minus') + ' ' + Math.abs(umsatzDelta) + ' Prozent gegenueber der Vorwoche');\n}\nif (umsatzVor > 0 && umsatz === 0) {\n  auffaelligkeiten.push('In der Berichtswoche wurde kein Umsatz verbucht - moeglicherweise fehlen Rechnungen im Sheet');\n}\nif (alt.length) {\n  auffaelligkeiten.push(alt.length + ' Angebote liegen laenger als ' + ANGEBOT_ALT_TAGE + ' Tage unbeantwortet');\n}\nif (conv !== null && convVor !== null && Math.abs(conv - convVor) >= 10) {\n  auffaelligkeiten.push('Conversion veraendert sich um ' + (conv - convVor).toFixed(1) + ' Prozentpunkte');\n}\nif (anzahl && umsatz / anzahl > 0 && anzahlVor && (umsatz / anzahl) > (umsatzVor / anzahlVor) * 2) {\n  auffaelligkeiten.push('Der durchschnittliche Rechnungsbetrag hat sich mehr als verdoppelt - vermutlich ein Grossauftrag');\n}\n\nreturn [{\n  json: {\n    zeitraum_label: z.zeitraum_label,\n    vorwoche_label: z.vorwoche_label,\n    kalenderwoche: z.kalenderwoche,\n    umsatz_eur: umsatz,\n    umsatz_vorwoche_eur: umsatzVor,\n    umsatz_veraenderung_prozent: umsatzDelta,\n    anzahl_rechnungen: anzahl,\n    anzahl_rechnungen_vorwoche: anzahlVor,\n    durchschnittsbetrag_eur: anzahl ? Number((umsatz / anzahl).toFixed(2)) : 0,\n    offene_angebote: offen.length,\n    offenes_angebotsvolumen_eur: Number(offen.reduce((s, a) => s + a.betrag, 0).toFixed(2)),\n    offene_angebote_ueber_30_tage: alt.length,\n    conversion_prozent: conv,\n    conversion_vorwoche_prozent: convVor,\n    auffaelligkeiten,\n    datenbasis_ok: umsatzZeilen.length > 0 && angeboteOk,\n    datenluecke: [\n      umsatzZeilen.length ? null : 'Google Sheet \"Umsaetze\" lieferte keine Zeilen',\n      angeboteOk ? null : 'Warenwirtschafts-API antwortete mit Status ' + statusCode + ' oder in unerwartetem Format',\n    ].filter(Boolean).join('; '),\n  },\n}];"
+      },
+      "id": "kennzahlen",
+      "name": "Kennzahlen berechnen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1300, 340]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {"caseSensitive": true, "version": 2},
+          "conditions": [
+            {
+              "id": "datenbasis",
+              "leftValue": "={{ $json.datenbasis_ok }}",
+              "rightValue": true,
+              "operator": {"type": "boolean", "operation": "true", "singleValue": true}
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-datenbasis",
+      "name": "Datenbasis vollstaendig?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1520, 340]
+    },
+    {
+      "parameters": {
+        "modelId": {"__rl": true, "value": "gpt-4.1-mini", "mode": "list"},
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "Du schreibst den Kommentar zum Wochenbericht fuer die Geschaeftsfuehrung eines mittelstaendischen deutschen Betriebs. Der Leser sieht die Zahlen bereits in einer Tabelle darueber.\n\nRegeln:\n- Hoechstens fuenf Saetze, reiner Fliesstext, kein Markdown, keine Aufzaehlung, keine Anrede, keine Grussformel.\n- Zahlen nicht wiederholen, ausser sie tragen die Aussage.\n- Keine Floskeln und keine Wertungen wie erfreulich, solide, herausfordernd, spannend, Wachstumskurs.\n- Nur benennen, was auffaellt, und was daraus folgt oder was zu pruefen ist.\n- Keine Prognosen und keine Empfehlungen, die aus den Daten nicht hervorgehen.\n- Wenn nichts auffaellt: genau ein Satz, der das feststellt.\n- Kennzeichne Unsicherheit als solche, statt sie zu glaetten."
+            },
+            {
+              "role": "user",
+              "content": "=Kennzahlen der Woche {{ $json.zeitraum_label }} als JSON:\n{{ JSON.stringify($json) }}"
+            }
+          ]
+        },
+        "options": {"temperature": 0.2}
+      },
+      "id": "ki-kommentar",
+      "name": "Management-Kommentar formulieren",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [1740, 200]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "kommentar",
+              "name": "kommentar",
+              "value": "=Kein KI-Kommentar, weil die Datenbasis unvollstaendig ist: {{ $json.datenluecke }}. Die ausgewiesenen Zahlen sind daher nur eingeschraenkt belastbar.",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "set-luecke",
+      "name": "Hinweis auf Datenluecke",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1740, 480]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Der Kommentar kommt je nach Zweig aus dem KI-Node oder aus dem Set-Node, und\n// die OpenAI-Node liefert ihn je nach Einstellung unter content, message.content\n// oder text. Alle Varianten abfangen ist billiger als ein leerer Bericht.\nconst q = $input.first().json;\nconst kommentar = q.kommentar ?? q.message?.content ?? q.content ?? q.text ?? '(kein Kommentar erzeugt)';\nconst k = $('Kennzahlen berechnen').first().json;\n\nfunction eur(wert) {\n  return Number(wert || 0).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' EUR';\n}\n\nfunction delta(wert) {\n  if (wert === null || wert === undefined) return 'kein Vergleichswert';\n  return (wert > 0 ? '+' : '') + wert + ' %';\n}\n\nfunction prozent(wert) {\n  return wert === null || wert === undefined ? 'nicht berechenbar' : wert + ' %';\n}\n\nconst zeilen = [\n  'Wochenbericht KW ' + k.kalenderwoche + ' (' + k.zeitraum_label + ')',\n  'Vergleichswoche: ' + k.vorwoche_label,\n  '',\n  'Umsatz                       ' + eur(k.umsatz_eur) + '   (' + delta(k.umsatz_veraenderung_prozent) + ')',\n  'Rechnungen                   ' + k.anzahl_rechnungen + '   (Vorwoche: ' + k.anzahl_rechnungen_vorwoche + ')',\n  'Durchschnittlicher Beleg     ' + eur(k.durchschnittsbetrag_eur),\n  'Offene Angebote              ' + k.offene_angebote + '   Volumen: ' + eur(k.offenes_angebotsvolumen_eur),\n  'davon aelter als 30 Tage     ' + k.offene_angebote_ueber_30_tage,\n  'Conversion                   ' + prozent(k.conversion_prozent) + '   (Vorwoche: ' + prozent(k.conversion_vorwoche_prozent) + ')',\n  '',\n  'Auffaelligkeiten:',\n  k.auffaelligkeiten.length ? k.auffaelligkeiten.map((a) => '- ' + a).join('\\n') : '- keine oberhalb der eingestellten Schwellen',\n  '',\n  'Kommentar:',\n  kommentar,\n  '',\n  '--',\n  'Automatisch erstellt. Der Kommentar wurde maschinell mit einem KI-Sprachmodell formuliert (Kennzeichnung nach Art. 50 EU-AI-Act), die Kennzahlen stammen unveraendert aus Google Sheets und der Warenwirtschaft.',\n];\n\nreturn [{ json: { betreff: 'Wochenbericht KW ' + k.kalenderwoche + ' - Umsatz ' + eur(k.umsatz_eur) + ' (' + delta(k.umsatz_veraenderung_prozent) + ')', text: zeilen.join('\\n') } }];"
+      },
+      "id": "bericht",
+      "name": "Bericht formatieren",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1960, 340]
+    },
+    {
+      "parameters": {
+        "fromEmail": "reporting@HIER_FIRMENDOMAIN_EINTRAGEN.de",
+        "toEmail": "geschaeftsfuehrung@HIER_FIRMENDOMAIN_EINTRAGEN.de",
+        "subject": "={{ $json.betreff }}",
+        "emailFormat": "text",
+        "text": "={{ $json.text }}",
+        "options": {}
+      },
+      "id": "mail-gf",
+      "name": "Wochenbericht versenden",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [2180, 340]
+    }
+  ],
+  "connections": {
+    "Montags um 7 Uhr": {"main": [[{"node": "Berichtszeitraum bestimmen", "type": "main", "index": 0}]]},
+    "Berichtszeitraum bestimmen": {"main": [[{"node": "Umsaetze aus Google Sheets", "type": "main", "index": 0}, {"node": "Angebote aus Warenwirtschaft holen", "type": "main", "index": 0}]]},
+    "Umsaetze aus Google Sheets": {"main": [[{"node": "Datenquellen zusammenfuehren", "type": "main", "index": 0}]]},
+    "Angebote aus Warenwirtschaft holen": {"main": [[{"node": "Datenquellen zusammenfuehren", "type": "main", "index": 1}]]},
+    "Datenquellen zusammenfuehren": {"main": [[{"node": "Kennzahlen berechnen", "type": "main", "index": 0}]]},
+    "Kennzahlen berechnen": {"main": [[{"node": "Datenbasis vollstaendig?", "type": "main", "index": 0}]]},
+    "Datenbasis vollstaendig?": {"main": [[{"node": "Management-Kommentar formulieren", "type": "main", "index": 0}], [{"node": "Hinweis auf Datenluecke", "type": "main", "index": 0}]]},
+    "Management-Kommentar formulieren": {"main": [[{"node": "Bericht formatieren", "type": "main", "index": 0}]]},
+    "Hinweis auf Datenluecke": {"main": [[{"node": "Bericht formatieren", "type": "main", "index": 0}]]},
+    "Bericht formatieren": {"main": [[{"node": "Wochenbericht versenden", "type": "main", "index": 0}]]}
+  },
+  "settings": {"executionOrder": "v1"},
+  "pinData": {}
+}

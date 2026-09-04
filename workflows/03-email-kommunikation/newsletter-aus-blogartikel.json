@@ -1,0 +1,196 @@
+{
+  "name": "Newsletter-Entwurf aus neuen Blogartikeln erzeugen",
+  "meta": {
+    "beschreibung": "Liest einmal woechentlich den RSS-Feed der eigenen Website, filtert die seit dem letzten Lauf neu erschienenen Artikel heraus und laesst die KI daraus eine Newsletter-Zusammenfassung mit zwei Betreffzeilen-Varianten fuer einen A/B-Test schreiben. Der fertige Text wandert als Entwurf ins Mail-Tool (HTTP-Platzhalter) und die Redaktion bekommt eine Freigabe-Meldung - versendet wird nichts automatisch. EU-AI-Act-Hinweis: Nach Art. 50 muessen KI-generierte Inhalte als solche erkennbar sein; der Workflow haengt dem Entwurf deshalb einen Kennzeichnungshinweis an, der im Newsletter stehen bleiben sollte. DSGVO-Hinweis: Empfaengerdaten bleiben im Mail-Tool, an die KI gehen ausschliesslich die oeffentlichen Artikeltexte.",
+    "kategorie": "E-Mail & Kommunikation",
+    "schwierigkeit": "mittel",
+    "benoetigt": ["RSS-Feed der eigenen Website", "OpenAI-API (oder Ollama)", "Newsletter-Tool mit API (z. B. Brevo, CleverReach, Mailchimp)", "SMTP-Versand fuer die interne Freigabe"],
+    "quelle": "https://die-ki-agentur.de/n8n-agentur/"
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Woechentlicher Newsletter aus dem Blog\n\n**Ablauf:** Montag 08:00 → RSS-Feed lesen → nur Artikel seit dem letzten Lauf → KI schreibt Zusammenfassung + 2 Betreffzeilen (A/B) → Entwurf ins Mail-Tool → Freigabe-Mail an die Redaktion.\n\n**Es wird kein Newsletter automatisch versendet.**\n\n**Vor dem Start:**\n1. In `Blog-Feed lesen` die Feed-URL eintragen (HIER_RSS_FEED_URL)\n2. In `Entwurf im Mail-Tool anlegen` API-URL und Listen-ID setzen (HIER_NEWSLETTER_API_URL, HIER_LISTEN_ID)\n3. Empfaenger der Freigabe-Meldung in `Freigabe anfordern` eintragen\n4. Workflow aktivieren - der Merker fuer den letzten Lauf funktioniert nur in aktiven Workflows, nicht im Testlauf\n5. Beim ersten Lauf werden Artikel der letzten 7 Tage genommen\n\n**Kennzeichnung:** Der Entwurf enthaelt einen Hinweis auf die KI-Erstellung (Art. 50 EU AI Act). Bitte im Versand stehen lassen.\n\n**Betreuung:** https://die-ki-agentur.de/n8n-agentur/",
+        "height": 560,
+        "width": 480
+      },
+      "id": "note-doku",
+      "name": "Kurzanleitung",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-160, -60]
+    },
+    {
+      "parameters": {
+        "rule": {"interval": [{"field": "weeks", "triggerAtDay": [1], "triggerAtHour": 8, "triggerAtMinute": 0}]}
+      },
+      "id": "trigger-woche",
+      "name": "Montags starten",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [380, 300]
+    },
+    {
+      "parameters": {
+        "url": "HIER_RSS_FEED_URL",
+        "options": {"ignoreSSL": false}
+      },
+      "id": "rss-lesen",
+      "name": "Blog-Feed lesen",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1.1,
+      "position": [600, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Der Feed liefert immer die letzten ~10 Artikel. Ohne Gedaechtnis wuerde jeder\n// Lauf denselben Newsletter erzeugen. Der Zeitstempel des letzten erfolgreichen\n// Laufs liegt deshalb in den statischen Workflow-Daten - die ueberleben einen\n// Neustart, sind aber nur in AKTIVEN Workflows persistent (im manuellen Testlauf\n// wird nichts gespeichert).\nconst merker = $getWorkflowStaticData('global');\n\n// Erster Lauf: 7 Tage zurueck, damit nicht das ganze Blog-Archiv im Newsletter landet.\nconst standard = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);\nconst stichtag = merker.letzter_lauf ? new Date(merker.letzter_lauf) : standard;\n\nconst neue = [];\nfor (const eintrag of $input.all()) {\n  const a = eintrag.json;\n  const datum = new Date(a.isoDate ?? a.pubDate ?? a.date ?? 0);\n  if (isNaN(datum.getTime()) || datum <= stichtag) continue;\n\n  // HTML aus der Feed-Vorschau entfernen: Markup kostet nur Tokens und\n  // verleitet das Modell dazu, Tags in den Newsletter zu uebernehmen.\n  const roh = String(a.contentSnippet ?? a.content ?? a.summary ?? '');\n  const text = roh.replace(/<[^>]+>/g, ' ').replace(/\\s+/g, ' ').trim();\n\n  neue.push({\n    titel: a.title ?? '(ohne Titel)',\n    link: a.link ?? '',\n    datum_de: datum.toLocaleDateString('de-DE'),\n    datum_iso: datum.toISOString(),\n    anriss: text.slice(0, 1200),\n    kategorien: Array.isArray(a.categories) ? a.categories : []\n  });\n}\n\n// Neueste zuerst, maximal 6 Artikel - laengere Newsletter werden erfahrungsgemaess\n// nicht mehr zu Ende gelesen.\nneue.sort((x, y) => new Date(y.datum_iso) - new Date(x.datum_iso));\nconst auswahl = neue.slice(0, 6);\n\nreturn [{\n  json: {\n    anzahl_neu: auswahl.length,\n    uebersprungen: Math.max(0, neue.length - auswahl.length),\n    stichtag_iso: stichtag.toISOString(),\n    stichtag_de: stichtag.toLocaleDateString('de-DE'),\n    lauf_iso: new Date().toISOString(),\n    artikel: auswahl,\n    artikel_text: auswahl.map((a, i) => `${i + 1}. ${a.titel} (${a.datum_de})\\nLink: ${a.link}\\n${a.anriss}`).join('\\n\\n')\n  }\n}];"
+      },
+      "id": "filter-neu",
+      "name": "Neue Artikel seit letztem Lauf",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [820, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {"caseSensitive": true, "version": 2},
+          "conditions": [
+            {"id": "hat-artikel", "leftValue": "={{ $json.anzahl_neu }}", "rightValue": 0, "operator": {"type": "number", "operation": "gt"}}
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-neu",
+      "name": "Neue Artikel vorhanden?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1040, 300]
+    },
+    {
+      "parameters": {
+        "assignments": {"assignments": [
+          {"id": "grund", "name": "ergebnis", "value": "=Kein Versand: seit {{ $json.stichtag_de }} sind keine neuen Artikel erschienen.", "type": "string"},
+          {"id": "hinweis", "name": "hinweis", "value": "Bewusst kein Newsletter ohne Inhalt - leere Aussendungen kosten Abonnenten.", "type": "string"}
+        ]},
+        "options": {}
+      },
+      "id": "set-kein-versand",
+      "name": "Kein Versand noetig",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1260, 520]
+    },
+    {
+      "parameters": {
+        "modelId": {"__rl": true, "value": "gpt-4.1-mini", "mode": "list"},
+        "messages": {"values": [
+          {"role": "system", "content": "Du schreibst den woechentlichen Kunden-Newsletter eines deutschen Unternehmens. Antworte AUSSCHLIESSLICH mit einem JSON-Objekt, keine Erklaerung. Felder: betreff_a (string, max. 60 Zeichen, sachlich-nutzenorientiert), betreff_b (string, max. 60 Zeichen, deutlich andere Ansprache als betreff_a, z. B. als Frage oder mit Zahl), preheader (string, max. 100 Zeichen), einleitung (string, 2-3 Saetze in Sie-Ansprache), artikel (Array von Objekten mit titel, zusammenfassung (2-3 Saetze), link, cta (kurzer Linktext)), abschluss (string, 1-2 Saetze). Regeln: Nur Inhalte verwenden, die in den gelieferten Artikeltexten stehen - nichts hinzuerfinden. Links exakt uebernehmen. Keine Superlative, keine Emojis, kein 'in der heutigen Zeit'. Die beiden Betreffzeilen sind fuer einen A/B-Test - sie muessen sich inhaltlich in der Ansprache unterscheiden, nicht nur in einem Wort."},
+          {"role": "user", "content": "=Neue Artikel seit {{ $json.stichtag_de }} ({{ $json.anzahl_neu }} Stueck):\n\n{{ $json.artikel_text }}"}
+        ]},
+        "jsonOutput": true,
+        "options": {"temperature": 0.4}
+      },
+      "id": "ki-newsletter",
+      "name": "Newsletter texten",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [1260, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Zwei Aufgaben: pruefen, ob der Entwurf ueberhaupt versandfaehig ist, und die\n// Kennzeichnung nach Art. 50 EU AI Act fest an den Text haengen. Der Hinweis\n// wird hier und nicht im Prompt gesetzt - so kann das Modell ihn nicht\n// \"wegformulieren\" und der Wortlaut bleibt in jedem Lauf identisch.\nconst KENNZEICHNUNG = 'Dieser Newsletter wurde mit Unterstuetzung von KI erstellt und vor dem Versand redaktionell geprueft.';\nconst MAX_BETREFF = 60;\n\nconst quelle = $('Neue Artikel seit letztem Lauf').first().json;\nconst e = $input.first().json.message?.content ?? $input.first().json;\n\nconst maengel = [];\nconst betreffA = String(e.betreff_a ?? '').trim();\nconst betreffB = String(e.betreff_b ?? '').trim();\nconst artikel = Array.isArray(e.artikel) ? e.artikel : [];\n\nif (!betreffA || !betreffB) maengel.push('Es fehlt eine der beiden Betreffzeilen fuer den A/B-Test');\nif (betreffA && betreffA === betreffB) maengel.push('Beide Betreffzeilen sind identisch - kein sinnvoller A/B-Test');\nif (betreffA.length > MAX_BETREFF || betreffB.length > MAX_BETREFF) maengel.push('Betreffzeile laenger als ' + MAX_BETREFF + ' Zeichen - wird in Mail-Clients abgeschnitten');\nif (artikel.length !== quelle.anzahl_neu) maengel.push(`Modell hat ${artikel.length} statt ${quelle.anzahl_neu} Artikel zusammengefasst`);\n\n// Erfundene Links sind der haeufigste Fehler: jeder Link muss aus dem Feed stammen.\nconst echteLinks = new Set(quelle.artikel.map(a => a.link));\nconst fremdeLinks = artikel.map(a => a.link).filter(l => l && !echteLinks.has(l));\nif (fremdeLinks.length) maengel.push('Nicht aus dem Feed stammende Links: ' + fremdeLinks.join(', '));\n\nconst html = [\n  `<p>${e.einleitung ?? ''}</p>`,\n  ...artikel.map(a => `<h2>${a.titel}</h2><p>${a.zusammenfassung}</p><p><a href=\"${a.link}\">${a.cta || 'Zum Artikel'}</a></p>`),\n  `<p>${e.abschluss ?? ''}</p>`,\n  `<hr><p style=\"font-size:12px;color:#666\">${KENNZEICHNUNG}</p>`\n].join('\\n');\n\nreturn [{\n  json: {\n    betreff_a: betreffA,\n    betreff_b: betreffB,\n    preheader: e.preheader ?? '',\n    html,\n    text_vorschau: [e.einleitung, ...artikel.map(a => `${a.titel}: ${a.zusammenfassung} ${a.link}`), e.abschluss, KENNZEICHNUNG].filter(Boolean).join('\\n\\n'),\n    artikel_anzahl: artikel.length,\n    kennzeichnung: KENNZEICHNUNG,\n    maengel,\n    versandfaehig: maengel.length === 0,\n    lauf_iso: quelle.lauf_iso\n  }\n}];"
+      },
+      "id": "pruefe-entwurf",
+      "name": "Entwurf pruefen und kennzeichnen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1480, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {"caseSensitive": true, "version": 2},
+          "conditions": [
+            {"id": "ok", "leftValue": "={{ $json.versandfaehig }}", "rightValue": true, "operator": {"type": "boolean", "operation": "true", "singleValue": true}}
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-versandfaehig",
+      "name": "Entwurf brauchbar?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1700, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "HIER_NEWSLETTER_API_URL",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ status: 'draft', listen_id: 'HIER_LISTEN_ID', betreff_variante_a: $json.betreff_a, betreff_variante_b: $json.betreff_b, preheader: $json.preheader, html: $json.html, ab_test: { aktiv: true, testanteil_prozent: 20, gewinnerkriterium: 'Oeffnungsrate', laufzeit_stunden: 4 } }) }}",
+        "options": {"response": {"response": {"neverError": true}}}
+      },
+      "id": "http-entwurf",
+      "name": "Entwurf im Mail-Tool anlegen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1920, 100]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Der Merker wird erst JETZT gesetzt - nach dem erfolgreichen Anlegen des\n// Entwurfs. Waere er schon im Filter gesetzt worden, waeren die Artikel bei\n// einem Fehler im KI- oder API-Schritt fuer immer verloren: der naechste Lauf\n// haette sie als \"schon verarbeitet\" uebersprungen.\nconst merker = $getWorkflowStaticData('global');\nconst entwurf = $('Entwurf pruefen und kennzeichnen').first().json;\nmerker.letzter_lauf = entwurf.lauf_iso;\nmerker.letzte_artikelzahl = entwurf.artikel_anzahl;\n\nreturn [{ json: { ...entwurf, merker_gesetzt_auf: merker.letzter_lauf } }];"
+      },
+      "id": "stand-merken",
+      "name": "Stand des Laufs merken",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2140, 100]
+    },
+    {
+      "parameters": {
+        "fromEmail": "HIER_ABSENDER_EINTRAGEN",
+        "toEmail": "redaktion@HIER_DOMAIN_EINTRAGEN",
+        "subject": "=Newsletter-Entwurf liegt bereit ({{ $json.artikel_anzahl }} Artikel)",
+        "emailFormat": "text",
+        "text": "=Im Newsletter-Tool liegt ein neuer Entwurf zur Freigabe.\n\nBetreff Variante A: {{ $json.betreff_a }}\nBetreff Variante B: {{ $json.betreff_b }}\nPreheader: {{ $json.preheader }}\nArtikel im Newsletter: {{ $json.artikel_anzahl }}\n\nA/B-Test ist vorbereitet: 20 Prozent Testversand, Gewinner nach Oeffnungsrate, Entscheidung nach 4 Stunden.\n\nTextvorschau:\n{{ $json.text_vorschau }}\n\nHinweis zur Kennzeichnung: {{ $json.kennzeichnung }}\nDieser Satz steht im Fuss des Entwurfs und sollte dort bleiben (Art. 50 EU AI Act).\n\nDer Newsletter wurde NICHT versendet. Bitte im Tool pruefen und von Hand freigeben.",
+        "options": {}
+      },
+      "id": "mail-freigabe",
+      "name": "Freigabe anfordern",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [2360, 100]
+    },
+    {
+      "parameters": {
+        "assignments": {"assignments": [
+          {"id": "maengel", "name": "nacharbeit", "value": "={{ $json.maengel.join('; ') }}", "type": "string"},
+          {"id": "aktion", "name": "naechster_schritt", "value": "Entwurf von Hand ueberarbeiten. Der Merker fuer den letzten Lauf bleibt bewusst unveraendert - die Artikel werden im naechsten Lauf erneut angeboten.", "type": "string"}
+        ]},
+        "options": {}
+      },
+      "id": "set-nacharbeit",
+      "name": "Nacharbeit noetig",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1920, 340]
+    }
+  ],
+  "connections": {
+    "Montags starten": {"main": [[{"node": "Blog-Feed lesen", "type": "main", "index": 0}]]},
+    "Blog-Feed lesen": {"main": [[{"node": "Neue Artikel seit letztem Lauf", "type": "main", "index": 0}]]},
+    "Neue Artikel seit letztem Lauf": {"main": [[{"node": "Neue Artikel vorhanden?", "type": "main", "index": 0}]]},
+    "Neue Artikel vorhanden?": {"main": [[{"node": "Newsletter texten", "type": "main", "index": 0}], [{"node": "Kein Versand noetig", "type": "main", "index": 0}]]},
+    "Newsletter texten": {"main": [[{"node": "Entwurf pruefen und kennzeichnen", "type": "main", "index": 0}]]},
+    "Entwurf pruefen und kennzeichnen": {"main": [[{"node": "Entwurf brauchbar?", "type": "main", "index": 0}]]},
+    "Entwurf brauchbar?": {"main": [[{"node": "Entwurf im Mail-Tool anlegen", "type": "main", "index": 0}], [{"node": "Nacharbeit noetig", "type": "main", "index": 0}]]},
+    "Entwurf im Mail-Tool anlegen": {"main": [[{"node": "Stand des Laufs merken", "type": "main", "index": 0}]]},
+    "Stand des Laufs merken": {"main": [[{"node": "Freigabe anfordern", "type": "main", "index": 0}]]}
+  },
+  "settings": {"executionOrder": "v1"},
+  "pinData": {}
+}

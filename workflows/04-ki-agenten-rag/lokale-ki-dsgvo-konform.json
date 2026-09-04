@@ -1,0 +1,436 @@
+{
+  "name": "KI-Anfragen ueber ein lokales Modell beantworten (DSGVO-konform)",
+  "meta": {
+    "beschreibung": "Nimmt Anfragen per Webhook entgegen und beantwortet sie mit einem lokal gehosteten Modell (Ollama auf demselben Server), sodass keine Inhalte an einen Cloud-Anbieter gehen; protokolliert werden nur Metadaten, keine Texte. Lokale Modelle rechnen sich, wenn regelmaessig sensible Inhalte verarbeitet werden — Personalunterlagen, Patienten- oder Mandantendaten, Konstruktionsdetails — oder wenn hohe, gleichmaessige Anfragemengen die laufenden API-Kosten ueber den Preis der eigenen Hardware treiben. Ihre Grenzen: ein 8B- bis 14B-Modell bleibt bei komplexer Analyse, langen Kontexten und exaktem Werkzeuggebrauch spuerbar hinter den grossen Cloud-Modellen zurueck, braucht auf CPU 10-60 Sekunden pro Antwort, und Hardware, Updates und Verfuegbarkeit liegen im eigenen Haus. Faellt das lokale Modell aus, antwortet der Workflow mit einer klaren Fehlermeldung (HTTP 503) und weicht bewusst NICHT still auf eine Cloud-API aus — sonst wandern genau die Daten nach draussen, die lokal bleiben sollten. DSGVO-Hinweis: Lokale Verarbeitung ersetzt weder den Eintrag im Verarbeitungsverzeichnis noch die Kennzeichnung KI-generierter Inhalte nach Art. 50 EU AI Act.",
+    "kategorie": "KI-Agenten & RAG",
+    "schwierigkeit": "mittel",
+    "benoetigt": [
+      "Ollama auf dem n8n-Host",
+      "Google Sheets (optionales Metadaten-Protokoll)"
+    ],
+    "quelle": "https://die-ki-agentur.de/n8n-agentur/"
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Lokales KI-Modell statt Cloud-API\n\n**Ablauf:** Webhook → Eingabe pruefen → Anfrage an das lokal gehostete Modell (Ollama auf localhost)\n→ Antwort pruefen → Antwort zurueckgeben. Metadaten werden protokolliert, Inhalte nicht.\n\n**Fallback ist bewusst KEIN Cloud-Modell.** Ist Ollama nicht erreichbar, geht eine klare\nFehlermeldung mit HTTP 503 zurueck. Ein stiller Ausweichzweig zu OpenAI waere bequem und genau\ndeshalb gefaehrlich: Die Daten, die man mit dem lokalen Modell aus der Cloud heraushalten wollte,\nwandern bei der ersten Stoerung unbemerkt genau dorthin — ohne AV-Vertrag, ohne Kenntnis des\nDatenschutzbeauftragten, ohne Eintrag im Verarbeitungsverzeichnis.\n\n**Vor dem Start:**\n1. Ollama auf demselben Host wie n8n installieren und ein Modell laden\n   (z. B. `ollama pull llama3.1:8b` oder `ollama pull qwen2.5:14b`)\n2. Port im Node \"Lokales Modell anfragen\" eintragen: HIER_OLLAMA_PORT (Standard 11434)\n   Laeuft n8n im Docker-Container, ist localhost der Container — dann\n   `http://host.docker.internal:11434` oder die Docker-Netzwerk-Adresse verwenden\n3. Modellnamen im Node \"Lokales Modell anfragen\" eintragen: HIER_MODELL_EINTRAGEN\n4. Webhook-URL an die aufrufende Anwendung geben: HIER_WEBHOOK_URL\n   Erwarteter Body: { \"frage\": \"...\", \"kontext\": \"optional\", \"system\": \"optional\" }\n5. Google-Sheet \"KI-Nutzung\" fuer das Metadaten-Protokoll anlegen, Spalten:\n   zeitpunkt, modell, zeichen_eingabe, zeichen_antwort, dauer_ms, status\n\n**Erwartungsmanagement:** Ein 8B-Modell auf einer CPU antwortet in 10-60 Sekunden.\nDer Timeout steht deshalb auf 120 Sekunden — bei Live-Chats zu lang, fuer Hintergrund-\nverarbeitung voellig in Ordnung.\n\n**Betreuung:** https://die-ki-agentur.de/n8n-agentur/",
+        "height": 800,
+        "width": 520
+      },
+      "id": "note-doku",
+      "name": "Kurzanleitung",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -200,
+        40
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "lokale-ki",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-anfrage",
+      "name": "Anfrage entgegennehmen",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        380,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "frage-da",
+              "leftValue": "={{ ($json.body?.frage || '').trim().length }}",
+              "rightValue": 3,
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            },
+            {
+              "id": "nicht-zu-lang",
+              "leftValue": "={{ (($json.body?.frage || '') + ($json.body?.kontext || '')).length }}",
+              "rightValue": 24000,
+              "operator": {
+                "type": "number",
+                "operation": "lte"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-eingabe",
+      "name": "Eingabe brauchbar?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        600,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:HIER_OLLAMA_PORT/api/chat",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'HIER_MODELL_EINTRAGEN', stream: false, options: { temperature: 0.2, num_ctx: 8192 }, messages: [ { role: 'system', content: $json.body.system || 'Du bist ein sachlicher Assistent eines deutschen Unternehmens. Antworte kurz, praezise und auf Deutsch. Wenn dir Informationen fehlen, sage das ausdruecklich, statt zu raten.' }, { role: 'user', content: ($json.body.kontext ? 'Kontext:\\n' + $json.body.kontext + '\\n\\nFrage:\\n' : '') + $json.body.frage } ] }) }}",
+        "options": {
+          "timeout": 120000,
+          "response": {
+            "response": {
+              "neverError": false
+            }
+          }
+        }
+      },
+      "id": "http-ollama",
+      "name": "Lokales Modell anfragen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        820,
+        220
+      ],
+      "onError": "continueErrorOutput",
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "jsCode": "// Die Antwort des lokalen Modells wird geprueft, bevor sie den Aufrufer erreicht.\n// Warum: Ollama antwortet auch dann mit HTTP 200, wenn das angeforderte Modell gar nicht\n// geladen ist oder der Kontext ueberlaeuft — der Body enthaelt dann eine Fehlermeldung\n// oder einen leeren String. Ohne diese Pruefung liefert der Webhook eine leere Antwort\n// und die aufrufende Anwendung zeigt sie als gueltiges Ergebnis an.\nconst antwortRoh = $input.first().json || {};\nconst anfrage = $('Anfrage entgegennehmen').first().json.body || {};\n\n// Ollama liefert je nach Endpunkt /api/chat (message.content) oder /api/generate (response).\nconst text = String(antwortRoh.message?.content ?? antwortRoh.response ?? '').trim();\nconst fehlertext = String(antwortRoh.error || '').trim();\n\nconst eingabe = String(anfrage.frage || '');\nconst brauchbar = fehlertext === '' && text.length >= 2;\n\nreturn [{\n  json: {\n    antwort: text,\n    brauchbar,\n    modell: antwortRoh.model || 'unbekannt',\n    zeichen_eingabe: eingabe.length,\n    zeichen_antwort: text.length,\n    // Ollama gibt die Dauer in Nanosekunden zurueck — fuer das Protokoll in Millisekunden.\n    dauer_ms: antwortRoh.total_duration ? Math.round(antwortRoh.total_duration / 1e6) : null,\n    tokens_antwort: antwortRoh.eval_count ?? null,\n    zeitpunkt: new Date().toISOString(),\n    verarbeitung: 'lokal',\n    fehlergrund: brauchbar\n      ? ''\n      : (fehlertext || 'Das lokale Modell hat eine leere Antwort geliefert — vermutlich ist das Modell nicht geladen oder der Kontext zu lang.'),\n  },\n}];"
+      },
+      "id": "code-pruefen",
+      "name": "Antwort pruefen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        140
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "brauchbar",
+              "leftValue": "={{ $json.brauchbar }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-antwort",
+      "name": "Antwort brauchbar?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1260,
+        140
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "HIER_SHEET_ID_EINTRAGEN",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "KI-Nutzung",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "zeitpunkt": "={{ $json.zeitpunkt }}",
+            "modell": "={{ $json.modell }}",
+            "zeichen_eingabe": "={{ $json.zeichen_eingabe }}",
+            "zeichen_antwort": "={{ $json.zeichen_antwort }}",
+            "dauer_ms": "={{ $json.dauer_ms }}",
+            "status": "erfolgreich (lokal)"
+          }
+        },
+        "options": {}
+      },
+      "id": "sheet-protokoll",
+      "name": "Nutzung protokollieren ohne Inhalte",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1480,
+        40
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: 'ok', verarbeitung: 'lokal', modell: $('Antwort pruefen').item.json.modell, antwort: $('Antwort pruefen').item.json.antwort, dauer_ms: $('Antwort pruefen').item.json.dauer_ms, hinweis: 'Antwort eines lokal gehosteten KI-Modells. Die Anfrage hat den Betrieb nicht verlassen.' }) }}",
+        "options": {}
+      },
+      "id": "respond-ok",
+      "name": "Antwort zurueckgeben",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1700,
+        40
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "status",
+              "name": "status",
+              "value": "lokales_modell_nicht_verfuegbar",
+              "type": "string"
+            },
+            {
+              "id": "code",
+              "name": "http_status",
+              "value": 503,
+              "type": "number"
+            },
+            {
+              "id": "meldung",
+              "name": "meldung",
+              "value": "=Das lokal gehostete Modell hat die Anfrage nicht beantwortet: {{ $json.fehlergrund || $json.error?.message || $json.message || 'Dienst nicht erreichbar' }}",
+              "type": "string"
+            },
+            {
+              "id": "kein-fallback",
+              "name": "hinweis",
+              "value": "Es findet bewusst KEIN automatischer Ausweich auf einen Cloud-Anbieter statt. Die Anfrage wurde nicht an Dritte uebermittelt. Bitte den Ollama-Dienst pruefen (laeuft der Prozess, ist das Modell geladen, ist der Port erreichbar?) und die Anfrage danach erneut senden.",
+              "type": "string"
+            },
+            {
+              "id": "pruefliste",
+              "name": "pruefschritte",
+              "value": "1. systemctl status ollama  2. ollama list  3. curl http://127.0.0.1:HIER_OLLAMA_PORT/api/tags  4. bei n8n in Docker: host.docker.internal statt 127.0.0.1",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "set-stoerung",
+      "name": "Stoerung melden ohne Cloud-Fallback",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1260,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "status",
+              "name": "status",
+              "value": "eingabe_ungueltig",
+              "type": "string"
+            },
+            {
+              "id": "code",
+              "name": "http_status",
+              "value": 400,
+              "type": "number"
+            },
+            {
+              "id": "meldung",
+              "name": "meldung",
+              "value": "Feld 'frage' fehlt, ist zu kurz oder Frage und Kontext zusammen ueberschreiten 24.000 Zeichen (Kontextfenster des lokalen Modells).",
+              "type": "string"
+            },
+            {
+              "id": "hinweis",
+              "name": "hinweis",
+              "value": "Bei laengeren Texten den Inhalt vorher aufteilen oder ein Modell mit groesserem Kontextfenster laden.",
+              "type": "string"
+            },
+            {
+              "id": "pruefliste",
+              "name": "pruefschritte",
+              "value": "Body-Format: { \"frage\": \"...\", \"kontext\": \"optional\", \"system\": \"optional\" }",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "set-eingabefehler",
+      "name": "Eingabefehler melden",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        820,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: $json.status, verarbeitung: 'lokal', meldung: $json.meldung, hinweis: $json.hinweis, pruefschritte: $json.pruefschritte }) }}",
+        "options": {
+          "responseCode": "={{ $json.http_status }}"
+        }
+      },
+      "id": "respond-fehler",
+      "name": "Fehler zurueckgeben",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1700,
+        480
+      ]
+    }
+  ],
+  "connections": {
+    "Anfrage entgegennehmen": {
+      "main": [
+        [
+          {
+            "node": "Eingabe brauchbar?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Eingabe brauchbar?": {
+      "main": [
+        [
+          {
+            "node": "Lokales Modell anfragen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Eingabefehler melden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lokales Modell anfragen": {
+      "main": [
+        [
+          {
+            "node": "Antwort pruefen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Stoerung melden ohne Cloud-Fallback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Antwort pruefen": {
+      "main": [
+        [
+          {
+            "node": "Antwort brauchbar?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Antwort brauchbar?": {
+      "main": [
+        [
+          {
+            "node": "Nutzung protokollieren ohne Inhalte",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Stoerung melden ohne Cloud-Fallback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Nutzung protokollieren ohne Inhalte": {
+      "main": [
+        [
+          {
+            "node": "Antwort zurueckgeben",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stoerung melden ohne Cloud-Fallback": {
+      "main": [
+        [
+          {
+            "node": "Fehler zurueckgeben",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Eingabefehler melden": {
+      "main": [
+        [
+          {
+            "node": "Fehler zurueckgeben",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

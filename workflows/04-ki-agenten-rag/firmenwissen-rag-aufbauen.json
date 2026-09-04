@@ -1,0 +1,541 @@
+{
+  "name": "Firmenwissen als durchsuchbaren RAG-Index aufbauen",
+  "meta": {
+    "beschreibung": "Baut naechtlich aus einer Dokumentenliste (Google Sheets) einen durchsuchbaren Wissensindex: Datei laden, Text extrahieren, in ueberlappende Abschnitte teilen, Embeddings erzeugen und in einen Vector Store (Qdrant, alternativ Supabase/pgvector) schreiben. Ueber einen Inhalts-Hash wird nur neu eingebettet, was sich tatsaechlich geaendert hat — das spart bei jedem Lauf den Grossteil der API-Kosten und der Laufzeit. Lohnt sich fuer Betriebe mit gewachsener Ablage aus Handbuechern, Preislisten und Arbeitsanweisungen. DSGVO-Hinweis: Personenbezogene Dokumente gehoeren nur in den Index, wenn die Zugriffsrechte im Vector Store abgebildet sind; fuer die Embeddings gilt ein AV-Vertrag mit dem Anbieter oder ein lokales Embedding-Modell.",
+    "kategorie": "KI-Agenten & RAG",
+    "schwierigkeit": "fortgeschritten",
+    "benoetigt": [
+      "Google Sheets",
+      "OpenAI-API (Embeddings)",
+      "Qdrant oder Supabase/pgvector"
+    ],
+    "quelle": "https://die-ki-agentur.de/n8n-agentur/"
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Firmenwissen als RAG-Index aufbauen\n\n**Ablauf:** Naechtlicher Lauf → Dokumentenliste aus Google Sheets → Datei laden → Text extrahieren\n→ Hash vergleichen (nur geaenderte Dokumente weiter) → alte Abschnitte in Qdrant loeschen\n→ Text in ueberlappende Abschnitte teilen → Embeddings erzeugen → Abschnitte in Qdrant speichern\n→ neuen Hash in die Liste zurueckschreiben.\n\n**Vor dem Start:**\n1. Google-Sheet \"Dokumente\" anlegen, Spalten: dokument_id, name, url, inhalt_hash, abschnitte, stand\n   (inhalt_hash und abschnitte bleiben beim ersten Lauf leer — der Workflow fuellt sie)\n2. Qdrant-Collection anlegen (Vektorgroesse 1536 fuer text-embedding-3-small, Distanz Cosine),\n   Host in beiden HTTP-Nodes eintragen: HIER_QDRANT_HOST\n3. Zugangsdaten waehlen: OpenAI (Embeddings), Header-Auth fuer Qdrant (api-key), Google Sheets\n4. Supabase statt Qdrant? Dann nur die beiden HTTP-Nodes gegen die pgvector-Endpunkte tauschen —\n   der Rest des Workflows bleibt unveraendert.\n\n**Warum der Hash-Vergleich:** Ohne ihn werden bei jedem Lauf alle Dokumente neu eingebettet.\nBei 500 Dokumenten sind das jede Nacht ein paar Euro und viel Wartezeit fuer null Mehrwert —\nder teuerste Anfaengerfehler beim RAG-Aufbau.\n\n**DSGVO:** Personenbezogene Dokumente (Personalakten, Bewerbungen) gehoeren nicht in den Index,\nsolange die Zugriffsrechte nicht im Vector Store abgebildet sind.\n\n**Betreuung:** https://die-ki-agentur.de/n8n-agentur/",
+        "height": 720,
+        "width": 520
+      },
+      "id": "note-doku",
+      "name": "Kurzanleitung",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -200,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "triggerAtHour": 3,
+              "triggerAtMinute": 15
+            }
+          ]
+        }
+      },
+      "id": "trigger-nacht",
+      "name": "Naechtlicher Lauf",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        380,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "HIER_SHEET_ID_EINTRAGEN",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Dokumente",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "sheet-liste",
+      "name": "Dokumentenliste lesen",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        600,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {
+          "reset": false
+        }
+      },
+      "id": "loop-doks",
+      "name": "Dokumente einzeln verarbeiten",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        820,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "fazit",
+              "name": "meldung",
+              "value": "=Wissensindex aktualisiert am {{ $now.format('dd.MM.yyyy') }}. Verarbeitete Dokumente: {{ $input.all().length }}.",
+              "type": "string"
+            },
+            {
+              "id": "hinweis",
+              "name": "naechster_schritt",
+              "value": "Bei Bedarf Spalte 'abschnitte' im Sheet pruefen — auffaellig wenige Abschnitte deuten auf ein Scan-PDF ohne Textebene hin.",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "set-fertig",
+      "name": "Lauf abschliessen",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1040,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.url }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file",
+              "outputPropertyName": "datei"
+            }
+          },
+          "timeout": 60000
+        }
+      },
+      "id": "http-download",
+      "name": "Datei herunterladen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1040,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "pdf",
+        "binaryPropertyName": "datei",
+        "options": {}
+      },
+      "id": "pdf-text",
+      "name": "Text extrahieren",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [
+        1260,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Warum ein eigener Hash statt require('crypto'):\n// n8n erlaubt eingebaute Node-Module im Code-Node nur, wenn der Betreiber\n// NODE_FUNCTION_ALLOW_BUILTIN gesetzt hat — auf n8n Cloud geht das gar nicht.\n// Der Hash muss hier nicht faelschungssicher sein, er muss nur zuverlaessig\n// anzeigen, ob sich der Text seit dem letzten Lauf geaendert hat. Dafuer reicht FNV-1a.\nfunction fnv1a(s) {\n  let h = 0x811c9dc5;\n  for (let i = 0; i < s.length; i++) {\n    h ^= s.charCodeAt(i);\n    h = Math.imul(h, 0x01000193) >>> 0;\n  }\n  return h.toString(16).padStart(8, '0');\n}\n\nconst doku = $('Dokumente einzeln verarbeiten').first().json;\nconst text = String($input.first().json.text || '');\n\n// Normalisieren, bevor gehasht wird: unterschiedliche Zeilenenden oder nachlaufende\n// Leerzeichen aus einem neuen PDF-Export wuerden sonst eine Aenderung vortaeuschen\n// und das ganze Dokument unnoetig neu einbetten.\nconst normalisiert = text.replace(/\\r/g, '').replace(/[ \\t]+\\n/g, '\\n').replace(/\\n{3,}/g, '\\n\\n').trim();\n\n// Laenge mit in den Hash: schuetzt gegen die (seltenen) FNV-Kollisionen,\n// kostet nichts und macht das Ergebnis im Sheet fuer Menschen nachvollziehbar.\nconst neuerHash = fnv1a(normalisiert) + '-' + normalisiert.length.toString(16);\nconst alterHash = String(doku.inhalt_hash || '').trim();\n\nif (normalisiert.length < 200) {\n  // Ein PDF ohne Textebene (reiner Scan) liefert leeren Text. Ohne diese Bremse\n  // wuerde der Workflow den Eintrag als \"geaendert\" behandeln und leere Abschnitte indexieren.\n  throw new Error('Dokument \"' + (doku.name || doku.dokument_id) + '\" liefert kaum Text (' +\n    normalisiert.length + ' Zeichen) — vermutlich ein Scan ohne OCR. Bitte OCR vorschalten.');\n}\n\nreturn [{\n  json: {\n    dokument_id: String(doku.dokument_id || doku.name || '').trim(),\n    dokument_name: doku.name,\n    quelle_url: doku.url,\n    inhalt_hash: neuerHash,\n    vorher_hash: alterHash,\n    geaendert: neuerHash !== alterHash,\n    zeichen: normalisiert.length,\n    stand: new Date().toISOString().slice(0, 10),\n    text: normalisiert,\n  },\n}];"
+      },
+      "id": "code-hash",
+      "name": "Inhalt hashen und vergleichen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1480,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "geaendert",
+              "leftValue": "={{ $json.geaendert }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-geaendert",
+      "name": "Dokument geaendert?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1700,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://HIER_QDRANT_HOST:6333/collections/firmenwissen/points/delete?wait=true",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ filter: { must: [ { key: 'dokument_id', match: { value: $json.dokument_id } } ] } }) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "http-loeschen",
+      "name": "Alte Abschnitte entfernen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1920,
+        380
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Warum ueberhaupt Abschnitte: Ein einziges Embedding ueber 30 Seiten verwaessert die\n// Bedeutung — die Suche findet dann alles ein bisschen und nichts genau.\n// ZIELGROESSE ~1200 Zeichen ist der Bereich, in dem ein Abschnitt noch genug Kontext\n// mitbringt, aber thematisch eindeutig bleibt (grob 300 Token).\n// UEBERLAPPUNG verhindert, dass eine Aussage, die genau auf der Schnittkante liegt,\n// in beiden Abschnitten nur halb vorkommt und damit von der Suche nicht mehr gefunden wird.\nconst ZIELGROESSE = 1200;\nconst UEBERLAPPUNG = 200;\nconst MIN_ABSCHNITT = 80;\n\nconst raus = [];\n\nfor (const eintrag of $input.all()) {\n  const dok = eintrag.json;\n  const text = String(dok.text || '');\n  let start = 0;\n  let nummer = 0;\n\n  while (start < text.length) {\n    let ende = Math.min(start + ZIELGROESSE, text.length);\n\n    if (ende < text.length) {\n      // Lieber an einer Absatz- oder Satzgrenze schneiden als mitten im Wort.\n      // Sonst beginnt ein Abschnitt mit einem Halbsatz und die KI zitiert spaeter Fragmente,\n      // die im Original gar nicht so stehen.\n      const fenster = text.slice(start, ende);\n      const absatz = fenster.lastIndexOf('\\n\\n');\n      const satz = Math.max(fenster.lastIndexOf('. '), fenster.lastIndexOf('! '), fenster.lastIndexOf('? '));\n      if (absatz > ZIELGROESSE * 0.5) {\n        ende = start + absatz;\n      } else if (satz > ZIELGROESSE * 0.5) {\n        ende = start + satz + 1;\n      }\n    }\n\n    const abschnitt = text.slice(start, ende).trim();\n\n    // Reste unter MIN_ABSCHNITT (Seitenzahlen, Fusszeilen) fliegen raus:\n    // sie erzeugen Treffer ohne Aussage und verdraengen echte Fundstellen aus dem Top-K.\n    if (abschnitt.length >= MIN_ABSCHNITT) {\n      raus.push({\n        json: {\n          dokument_id: dok.dokument_id,\n          dokument_name: dok.dokument_name,\n          quelle_url: dok.quelle_url,\n          inhalt_hash: dok.inhalt_hash,\n          stand: dok.stand,\n          abschnitt_nr: nummer,\n          abschnitt_id: dok.dokument_id + '#' + nummer,\n          text: abschnitt,\n          zeichen: abschnitt.length,\n        },\n      });\n      nummer++;\n    }\n\n    if (ende >= text.length) break;\n    // start + 1 als Untergrenze: verhindert eine Endlosschleife, falls die Satzgrenze\n    // den Schnitt weiter nach vorne zieht als die Ueberlappung zurueck.\n    start = Math.max(ende - UEBERLAPPUNG, start + 1);\n  }\n}\n\nif (raus.length === 0) {\n  throw new Error('Keine verwertbaren Abschnitte gebildet — Dokument pruefen.');\n}\n\nreturn raus;"
+      },
+      "id": "code-chunk",
+      "name": "In Abschnitte teilen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2140,
+        380
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/embeddings",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'text-embedding-3-small', input: $json.text }) }}",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 20,
+              "batchInterval": 1000
+            }
+          },
+          "timeout": 60000
+        }
+      },
+      "id": "http-embed",
+      "name": "Embeddings erzeugen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2360,
+        380
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Embeddings kommen in derselben Reihenfolge zurueck wie die Abschnitte hineingingen.\n// Trotzdem wird die Anzahl geprueft: verrutscht die Zuordnung (z. B. weil ein Request\n// gescheitert ist), landen Texte unter fremden Vektoren — ein Fehler, der im Betrieb\n// nur als \"die Suche liefert Unsinn\" auffaellt und stundenlang Suche kostet.\nconst abschnitte = $('In Abschnitte teilen').all();\nconst antworten = $input.all();\n\nif (abschnitte.length !== antworten.length) {\n  throw new Error('Abschnitte (' + abschnitte.length + ') und Embeddings (' + antworten.length +\n    ') passen nicht zusammen — Lauf abgebrochen, damit keine falsch verknuepften Vektoren entstehen.');\n}\n\nfunction fnv1a(s) {\n  let h = 0x811c9dc5;\n  for (let i = 0; i < s.length; i++) {\n    h ^= s.charCodeAt(i);\n    h = Math.imul(h, 0x01000193) >>> 0;\n  }\n  return h >>> 0;\n}\n\nconst punkte = antworten.map((antwort, i) => {\n  const a = abschnitte[i].json;\n  const vektor = antwort.json?.data?.[0]?.embedding;\n  if (!Array.isArray(vektor) || vektor.length === 0) {\n    throw new Error('Kein Vektor fuer Abschnitt ' + a.abschnitt_id + ' erhalten.');\n  }\n  return {\n    // Deterministische ID aus Dokument + Abschnittsnummer: ein zweiter Lauf ueberschreibt\n    // denselben Punkt, statt eine Dublette anzulegen. Qdrant akzeptiert unsigned Integer.\n    id: fnv1a(String(a.dokument_id)) * 100000 + a.abschnitt_nr,\n    vector: vektor,\n    payload: {\n      dokument_id: a.dokument_id,\n      dokument_name: a.dokument_name,\n      quelle_url: a.quelle_url,\n      abschnitt_nr: a.abschnitt_nr,\n      stand: a.stand,\n      text: a.text,\n    },\n  };\n});\n\nconst erster = abschnitte[0].json;\n\nreturn [{\n  json: {\n    dokument_id: erster.dokument_id,\n    dokument_name: erster.dokument_name,\n    quelle_url: erster.quelle_url,\n    inhalt_hash: erster.inhalt_hash,\n    stand: erster.stand,\n    anzahl_abschnitte: punkte.length,\n    points: punkte,\n  },\n}];"
+      },
+      "id": "code-punkte",
+      "name": "Vektorpunkte buendeln",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2580,
+        380
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "http://HIER_QDRANT_HOST:6333/collections/firmenwissen/points?wait=true",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ points: $json.points }) }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "http-qdrant",
+      "name": "Abschnitte in Vector Store schreiben",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2800,
+        380
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "HIER_SHEET_ID_EINTRAGEN",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Dokumente",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "dokument_id"
+          ],
+          "value": {
+            "dokument_id": "={{ $('Vektorpunkte buendeln').item.json.dokument_id }}",
+            "name": "={{ $('Vektorpunkte buendeln').item.json.dokument_name }}",
+            "url": "={{ $('Vektorpunkte buendeln').item.json.quelle_url }}",
+            "inhalt_hash": "={{ $('Vektorpunkte buendeln').item.json.inhalt_hash }}",
+            "abschnitte": "={{ $('Vektorpunkte buendeln').item.json.anzahl_abschnitte }}",
+            "stand": "={{ $('Vektorpunkte buendeln').item.json.stand }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "sheet-hash",
+      "name": "Neuen Hash zurueckschreiben",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        3020,
+        380
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "grund",
+              "name": "uebersprungen_grund",
+              "value": "=Inhalt unveraendert (Hash {{ $json.inhalt_hash }}) — kein neues Embedding noetig.",
+              "type": "string"
+            },
+            {
+              "id": "dok",
+              "name": "dokument_name",
+              "value": "={{ $json.dokument_name }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "set-uebersprungen",
+      "name": "Unveraendert uebersprungen",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1920,
+        620
+      ]
+    }
+  ],
+  "connections": {
+    "Naechtlicher Lauf": {
+      "main": [
+        [
+          {
+            "node": "Dokumentenliste lesen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dokumentenliste lesen": {
+      "main": [
+        [
+          {
+            "node": "Dokumente einzeln verarbeiten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dokumente einzeln verarbeiten": {
+      "main": [
+        [
+          {
+            "node": "Lauf abschliessen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Datei herunterladen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Datei herunterladen": {
+      "main": [
+        [
+          {
+            "node": "Text extrahieren",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Text extrahieren": {
+      "main": [
+        [
+          {
+            "node": "Inhalt hashen und vergleichen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Inhalt hashen und vergleichen": {
+      "main": [
+        [
+          {
+            "node": "Dokument geaendert?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dokument geaendert?": {
+      "main": [
+        [
+          {
+            "node": "Alte Abschnitte entfernen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Unveraendert uebersprungen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alte Abschnitte entfernen": {
+      "main": [
+        [
+          {
+            "node": "In Abschnitte teilen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "In Abschnitte teilen": {
+      "main": [
+        [
+          {
+            "node": "Embeddings erzeugen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Embeddings erzeugen": {
+      "main": [
+        [
+          {
+            "node": "Vektorpunkte buendeln",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Vektorpunkte buendeln": {
+      "main": [
+        [
+          {
+            "node": "Abschnitte in Vector Store schreiben",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Abschnitte in Vector Store schreiben": {
+      "main": [
+        [
+          {
+            "node": "Neuen Hash zurueckschreiben",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Neuen Hash zurueckschreiben": {
+      "main": [
+        [
+          {
+            "node": "Dokumente einzeln verarbeiten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Unveraendert uebersprungen": {
+      "main": [
+        [
+          {
+            "node": "Dokumente einzeln verarbeiten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

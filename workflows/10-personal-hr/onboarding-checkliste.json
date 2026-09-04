@@ -1,0 +1,257 @@
+{
+  "name": "Onboarding-Checkliste fuer neue Mitarbeitende erzeugen und nachhalten",
+  "meta": {
+    "beschreibung": "Wird vom Personalsystem per Webhook angestossen, sobald eine Einstellung feststeht: Der Workflow erzeugt aus Abteilung, Rolle und Eintrittsdatum eine vollstaendige Onboarding-Checkliste (IT-Zugaenge, Arbeitsplatz und Hardware, Pflichtunterweisungen, Dokumente, Organisation), setzt je Aufgabe eine Frist relativ zum ersten Arbeitstag, verteilt die Aufgabenpakete an IT, Facility, Buchhaltung und Fuehrungskraft, protokolliert alles in Google Sheets und erinnert bei ueberfaelligen Punkten. Zum Schluss geht ein Willkommensplan an die neue Kollegin oder den neuen Kollegen. Fester Bestandteil der Checkliste ist die KI-Kompetenzschulung nach Art. 4 EU AI Act — Betriebe muessen seit dem 02.02.2025 sicherstellen, dass Beschaeftigte, die KI-Systeme nutzen, ueber ausreichende KI-Kompetenz verfuegen. DSGVO-Hinweis: Der Webhook transportiert Beschaeftigtendaten — Endpunkt nur ueber HTTPS mit Header-Authentifizierung betreiben, Zugriff auf das Sheet auf Personal und die jeweiligen Zustaendigen beschraenken.",
+    "kategorie": "Personal & HR",
+    "schwierigkeit": "mittel",
+    "benoetigt": ["Webhook (Personalsystem oder internes Formular)", "Google Sheets", "SMTP-Postausgang"],
+    "quelle": "https://die-ki-agentur.de/n8n-agentur/"
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Onboarding vom ersten Tag an sortiert\n\n**Ablauf:** Webhook vom Personalsystem → Stammdaten pruefen → Checkliste je Abteilung erzeugen → Fristen relativ zum Eintritt setzen → Sheet schreiben → Aufgabenpakete an IT, Facility, Buchhaltung und Fuehrungskraft → ueberfaellige Punkte aus laufenden Onboardings erinnern → Willkommensplan an die neue Person.\n\n**Erwartete Webhook-Felder (JSON, POST):**\n`vorname`, `nachname`, `mail_privat`, `position`, `abteilung` (IT | Produktion | Vertrieb | Verwaltung | Sonstige), `eintrittsdatum` (TT.MM.JJJJ), `standort`, `vorgesetzter`, `vorgesetzter_mail`, optional `homeoffice` (true/false), `fuehrungskraft` (true/false), `arbeitszeit`\n\n**Vor dem Start:**\n1. Webhook-Pfad `neuer-mitarbeiter` im Personalsystem hinterlegen und mit Header-Auth absichern\n2. Verteiler im Node „Checkliste erzeugen“ eintragen: `HIER_MAIL_IT_EINTRAGEN`, `HIER_MAIL_FACILITY_EINTRAGEN`, `HIER_MAIL_PERSONAL_EINTRAGEN`, `HIER_MAIL_BUCHHALTUNG_EINTRAGEN`\n3. `HIER_SHEET_ID_EINTRAGEN` in beiden Google-Sheets-Nodes ersetzen; Blatt `Onboarding-Aufgaben` mit den Spalten aus dem Schreib-Node anlegen\n4. Aufgabenkatalog und Fristen an den Betrieb anpassen — die Pflichtunterweisungen sind Beispiele, kein Rechtsrat\n5. Der Punkt „KI-Kompetenzschulung nach Art. 4 EU AI Act“ bleibt in der Liste, sobald im Betrieb KI-Werkzeuge genutzt werden\n\n**Betreuung:** https://die-ki-agentur.de/n8n-agentur/",
+        "height": 660,
+        "width": 520
+      },
+      "id": "note-doku",
+      "name": "Kurzanleitung",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-220, 60]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "neuer-mitarbeiter",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "trigger-webhook",
+      "name": "Neuer Mitarbeiter gemeldet",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [380, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Stammdaten pruefen, bevor irgendetwas verteilt wird. Warum so streng:\n// Ein falsches Eintrittsdatum verschiebt saemtliche Fristen, und eine fehlende\n// Vorgesetzten-Adresse laesst die halbe Checkliste ins Leere laufen — beides faellt\n// sonst erst am ersten Arbeitstag auf.\nfunction datumLesen(wert) {\n  if (!wert) return null;\n  const t = String(wert).trim();\n  const de = t.match(/^(\\d{1,2})\\.(\\d{1,2})\\.(\\d{4})$/);\n  if (de) return new Date(Number(de[3]), Number(de[2]) - 1, Number(de[1]));\n  const iso = t.match(/^(\\d{4})-(\\d{2})-(\\d{2})/);\n  if (iso) return new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]));\n  return null;\n}\n\nconst zweiStellig = (n) => String(n).padStart(2, '0');\nconst datumDe = (d) => `${zweiStellig(d.getDate())}.${zweiStellig(d.getMonth() + 1)}.${d.getFullYear()}`;\n\nconst raus = [];\nfor (const eintrag of $input.all()) {\n  // Je nach Absender liegen die Felder direkt oder unter `body` — beides zulassen.\n  const d = eintrag.json.body ?? eintrag.json;\n\n  const eintritt = datumLesen(d.eintrittsdatum);\n  const fehlend = [];\n  if (!d.vorname) fehlend.push('vorname');\n  if (!d.nachname) fehlend.push('nachname');\n  if (!eintritt) fehlend.push('eintrittsdatum (TT.MM.JJJJ)');\n  if (!d.abteilung) fehlend.push('abteilung');\n  if (!d.position) fehlend.push('position');\n  if (!d.vorgesetzter_mail) fehlend.push('vorgesetzter_mail');\n  if (!d.mail_privat) fehlend.push('mail_privat (fuer die Willkommensmail)');\n\n  // Liegt der Eintritt in weniger als sieben Tagen, reicht der uebliche Vorlauf fuer\n  // Hardware und Zugaenge nicht — das muss die IT sofort wissen.\n  const heute = new Date();\n  heute.setHours(0, 0, 0, 0);\n  const tageBisEintritt = eintritt ? Math.round((eintritt - heute) / 86400000) : null;\n\n  raus.push({\n    json: {\n      vorname: d.vorname ?? '',\n      nachname: d.nachname ?? '',\n      name: `${d.vorname ?? ''} ${d.nachname ?? ''}`.trim(),\n      mail_privat: d.mail_privat ?? '',\n      position: d.position ?? '',\n      abteilung: d.abteilung ?? 'Sonstige',\n      standort: d.standort ?? 'Hauptstandort',\n      vorgesetzter: d.vorgesetzter ?? '',\n      vorgesetzter_mail: d.vorgesetzter_mail ?? '',\n      arbeitszeit: d.arbeitszeit ?? 'Vollzeit',\n      homeoffice: d.homeoffice === true || d.homeoffice === 'true',\n      fuehrungskraft: d.fuehrungskraft === true || d.fuehrungskraft === 'true',\n      eintrittsdatum: eintritt ? datumDe(eintritt) : null,\n      eintritt_iso: eintritt ? eintritt.toISOString().slice(0, 10) : null,\n      tage_bis_eintritt: tageBisEintritt,\n      eilfall: tageBisEintritt !== null && tageBisEintritt < 7,\n      fehlende_felder: fehlend,\n      stammdaten_vollstaendig: fehlend.length === 0,\n      gemeldet_am: new Date().toLocaleString('de-DE', { timeZone: 'Europe/Berlin' })\n    }\n  });\n}\nreturn raus;"
+      },
+      "id": "stammdaten",
+      "name": "Stammdaten pruefen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [600, 400]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {"caseSensitive": true, "version": 2},
+          "conditions": [
+            {"id": "vollst", "leftValue": "={{ $json.stammdaten_vollstaendig }}", "rightValue": true, "operator": {"type": "boolean", "operation": "true", "singleValue": true}}
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "weiche-stammdaten",
+      "name": "Stammdaten vollstaendig?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [820, 400]
+    },
+    {
+      "parameters": {
+        "fromEmail": "HIER_ABSENDERADRESSE_EINTRAGEN",
+        "toEmail": "HIER_MAIL_PERSONAL_EINTRAGEN",
+        "subject": "=Onboarding gestoppt: Stammdaten unvollstaendig ({{ $json.name || 'ohne Namen' }})",
+        "emailFormat": "text",
+        "message": "=Die Meldung vom {{ $json.gemeldet_am }} konnte nicht verarbeitet werden.\n\nFehlende Felder:\n{{ $json.fehlende_felder.map(f => '- ' + f).join('\\n') }}\n\nBekannte Angaben: {{ $json.name || 'kein Name' }}, {{ $json.position || 'keine Position' }}, {{ $json.abteilung }}, Eintritt {{ $json.eintrittsdatum || 'unbekannt' }}\n\nBitte im Personalsystem ergaenzen und die Meldung erneut ausloesen. Es wurden keine Aufgaben verteilt und keine Mails an die neue Person verschickt.",
+        "options": {}
+      },
+      "id": "mail-rueckfrage",
+      "name": "Rueckfrage an Personalabteilung",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [1040, 700]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Baut die Checkliste: Grundpaket fuer alle, Zusatzaufgaben nach Abteilung,\n// Rolle und Arbeitsform. Fristen werden als Versatz zum ersten Arbeitstag gepflegt\n// (negativ = vorher), weil sich der Eintritt haeufiger verschiebt als der Ablauf.\n// Zustaendigkeiten stehen an der Aufgabe, damit die Verteilung spaeter ohne\n// Sonderregeln funktioniert.\nconst m = $input.first().json;\n\nconst VERTEILER = {\n  IT: 'HIER_MAIL_IT_EINTRAGEN',\n  Facility: 'HIER_MAIL_FACILITY_EINTRAGEN',\n  Personal: 'HIER_MAIL_PERSONAL_EINTRAGEN',\n  Buchhaltung: 'HIER_MAIL_BUCHHALTUNG_EINTRAGEN',\n  Fuehrungskraft: m.vorgesetzter_mail\n};\n\n// [Kategorie, Aufgabe, Zustaendig, Versatz in Tagen zum Eintritt]\nconst GRUNDPAKET = [\n  ['Dokumente', 'Arbeitsvertrag unterschrieben zurueckerhalten und ablegen', 'Personal', -14],\n  ['Dokumente', 'Sozialversicherungsnummer, Steuer-ID und Bankverbindung erfassen', 'Buchhaltung', -10],\n  ['Dokumente', 'Anmeldung bei Sozialversicherung und Berufsgenossenschaft', 'Buchhaltung', -5],\n  ['IT-Zugaenge', 'Benutzerkonto, Mailadresse und Gruppenrechte anlegen', 'IT', -7],\n  ['IT-Zugaenge', 'Zugriff auf Fachanwendungen der Abteilung freischalten', 'IT', -3],\n  ['IT-Zugaenge', 'Mehr-Faktor-Authentifizierung einrichten und Passwortrichtlinie erklaeren', 'IT', 1],\n  ['Arbeitsplatz', 'Hardware bestellen und einrichten (Notebook, Monitor, Headset)', 'IT', -10],\n  ['Arbeitsplatz', 'Arbeitsplatz einrichten, Schluessel und Zutrittsausweis bereitlegen', 'Facility', -2],\n  ['Arbeitsplatz', 'Spind, Arbeitskleidung und Parkplatz zuweisen', 'Facility', -2],\n  ['Organisation', 'Einarbeitungsplan mit Wochenzielen erstellen', 'Fuehrungskraft', -5],\n  ['Organisation', 'Patenschaft festlegen und mit der Person abstimmen', 'Fuehrungskraft', -3],\n  ['Organisation', 'Begruessung am ersten Tag, Rundgang und Teamvorstellung', 'Fuehrungskraft', 0],\n  ['Schulungen', 'Sicherheitsunterweisung nach DGUV Vorschrift 1 durchfuehren', 'Personal', 1],\n  ['Schulungen', 'Datenschutzunterweisung und Vertraulichkeitsverpflichtung (Art. 32 DSGVO)', 'Personal', 3],\n  ['Schulungen', 'KI-Kompetenzschulung nach Art. 4 EU AI Act (Grundlagen, Grenzen, Kennzeichnungspflichten, betriebliche KI-Richtlinie)', 'Personal', 30],\n  ['Organisation', 'Feedbackgespraech nach der ersten Woche', 'Fuehrungskraft', 7],\n  ['Organisation', 'Probezeitgespraech terminieren (nach vier Monaten)', 'Fuehrungskraft', 120]\n];\n\nconst NACH_ABTEILUNG = {\n  IT: [['Schulungen', 'Administrationsrechte und Vier-Augen-Prinzip erlaeutern', 'IT', 2]],\n  Produktion: [\n    ['Schulungen', 'Maschinen- und Gefahrstoffunterweisung am Arbeitsplatz', 'Fuehrungskraft', 1],\n    ['Arbeitsplatz', 'Persoenliche Schutzausruestung ausgeben und dokumentieren', 'Facility', -1]\n  ],\n  Vertrieb: [\n    ['IT-Zugaenge', 'CRM-Zugang und Angebotsvorlagen freischalten', 'IT', -3],\n    ['Organisation', 'Kundenliste uebergeben und Gebietszuschnitt besprechen', 'Fuehrungskraft', 2]\n  ],\n  Verwaltung: [['IT-Zugaenge', 'ERP- und DMS-Zugang mit passendem Rollenprofil einrichten', 'IT', -3]]\n};\n\nconst AUFGABEN = [...GRUNDPAKET, ...(NACH_ABTEILUNG[m.abteilung] ?? [])];\nif (m.homeoffice) AUFGABEN.push(['Arbeitsplatz', 'Homeoffice-Ausstattung und Vereinbarung zur mobilen Arbeit bereitstellen', 'Personal', -3]);\nif (m.fuehrungskraft) AUFGABEN.push(['Schulungen', 'Fuehrungskraefte-Einfuehrung: Arbeitsrecht, Beurteilung, Betriebsvereinbarungen', 'Personal', 14]);\n\nconst zweiStellig = (n) => String(n).padStart(2, '0');\nconst datumDe = (d) => `${zweiStellig(d.getDate())}.${zweiStellig(d.getMonth() + 1)}.${d.getFullYear()}`;\nconst eintritt = new Date(`${m.eintritt_iso}T00:00:00`);\n\n// Faellt eine Frist auf Samstag oder Sonntag, wird auf den Freitag davor\n// vorgezogen — lieber zu frueh fertig als am Montag nicht arbeitsfaehig.\nfunction werktag(d) {\n  const x = new Date(d.getTime());\n  while (x.getDay() === 0 || x.getDay() === 6) x.setDate(x.getDate() - 1);\n  return x;\n}\n\nconst vorgang = `ONB-${m.eintritt_iso}-${(m.nachname || 'unbekannt').toLowerCase().replace(/[^a-z]/g, '').slice(0, 10)}`;\n\nconst raus = [];\nAUFGABEN.forEach((a, i) => {\n  const [kategorie, aufgabe, zustaendig, versatz] = a;\n  const frist = werktag(new Date(eintritt.getTime() + versatz * 86400000));\n  raus.push({\n    json: {\n      vorgang,\n      lfd_nr: i + 1,\n      mitarbeiter: m.name,\n      position: m.position,\n      abteilung: m.abteilung,\n      standort: m.standort,\n      eintrittsdatum: m.eintrittsdatum,\n      kategorie,\n      aufgabe,\n      zustaendig,\n      zustaendig_mail: VERTEILER[zustaendig] || VERTEILER.Personal,\n      frist: datumDe(frist),\n      versatz_tage: versatz,\n      // Was vor dem Eintritt faellig ist und weniger als eine Woche Zeit hat,\n      // wird markiert — sonst geht es im Tagesgeschaeft unter.\n      eilig: m.eilfall && versatz <= 1,\n      status: 'offen',\n      angelegt_am: m.gemeldet_am\n    }\n  });\n});\nreturn raus;"
+      },
+      "id": "checkliste",
+      "name": "Checkliste erzeugen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1040, 280]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {"__rl": true, "value": "HIER_SHEET_ID_EINTRAGEN", "mode": "id"},
+        "sheetName": {"__rl": true, "value": "Onboarding-Aufgaben", "mode": "name"},
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Vorgang": "={{ $json.vorgang }}",
+            "Nr": "={{ $json.lfd_nr }}",
+            "Mitarbeiter": "={{ $json.mitarbeiter }}",
+            "Abteilung": "={{ $json.abteilung }}",
+            "Eintritt": "={{ $json.eintrittsdatum }}",
+            "Kategorie": "={{ $json.kategorie }}",
+            "Aufgabe": "={{ $json.aufgabe }}",
+            "Zustaendig": "={{ $json.zustaendig }}",
+            "Zustaendig_Mail": "={{ $json.zustaendig_mail }}",
+            "Frist": "={{ $json.frist }}",
+            "Eilig": "={{ $json.eilig ? 'ja' : 'nein' }}",
+            "Status": "={{ $json.status }}",
+            "Angelegt_am": "={{ $json.angelegt_am }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "sheet-schreiben",
+      "name": "Aufgaben ins Sheet schreiben",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1260, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Ein Paket je Zustaendigkeit statt einer Mail je Aufgabe. Zwoelf Einzelmails an\n// die IT sind sicher der schnellste Weg, dass gar keine gelesen wird.\nconst aufgaben = $('Checkliste erzeugen').all().map((e) => e.json);\nconst gruppen = new Map();\n\nfor (const a of aufgaben) {\n  if (!gruppen.has(a.zustaendig)) gruppen.set(a.zustaendig, []);\n  gruppen.get(a.zustaendig).push(a);\n}\n\nconst raus = [];\nfor (const [zustaendig, liste] of gruppen) {\n  // Innerhalb des Pakets nach Frist sortieren — die Reihenfolge ist die Arbeitsliste.\n  liste.sort((x, y) => x.versatz_tage - y.versatz_tage);\n  const kopf = liste[0];\n\n  const text = liste\n    .map((a) => `${a.eilig ? '[EILIG] ' : ''}bis ${a.frist} — ${a.kategorie}: ${a.aufgabe}`)\n    .join('\\n');\n\n  raus.push({\n    json: {\n      vorgang: kopf.vorgang,\n      zustaendig,\n      zustaendig_mail: kopf.zustaendig_mail,\n      mitarbeiter: kopf.mitarbeiter,\n      position: kopf.position,\n      abteilung: kopf.abteilung,\n      standort: kopf.standort,\n      eintrittsdatum: kopf.eintrittsdatum,\n      anzahl_aufgaben: liste.length,\n      anzahl_eilig: liste.filter((a) => a.eilig).length,\n      erste_frist: liste[0].frist,\n      aufgaben_text: text\n    }\n  });\n}\nreturn raus;"
+      },
+      "id": "buendeln",
+      "name": "Aufgaben je Zustaendigkeit buendeln",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1480, 200]
+    },
+    {
+      "parameters": {
+        "fromEmail": "HIER_ABSENDERADRESSE_EINTRAGEN",
+        "toEmail": "={{ $json.zustaendig_mail }}",
+        "subject": "=Onboarding {{ $json.mitarbeiter }} (Eintritt {{ $json.eintrittsdatum }}): {{ $json.anzahl_aufgaben }} Aufgaben fuer {{ $json.zustaendig }}",
+        "emailFormat": "text",
+        "message": "=Neuer Onboarding-Vorgang {{ $json.vorgang }}\n\nPerson: {{ $json.mitarbeiter }}, {{ $json.position }}\nAbteilung: {{ $json.abteilung }} | Standort: {{ $json.standort }}\nErster Arbeitstag: {{ $json.eintrittsdatum }}\n{{ $json.anzahl_eilig > 0 ? 'Achtung: ' + $json.anzahl_eilig + ' Aufgabe(n) mit sehr kurzem Vorlauf.' : '' }}\n\nIhre Aufgaben (erste Frist: {{ $json.erste_frist }}):\n\n{{ $json.aufgaben_text }}\n\nBitte den Status im Sheet „Onboarding-Aufgaben“ auf `erledigt` setzen, sobald ein Punkt abgeschlossen ist. Offene Punkte nach Fristablauf werden automatisch erinnert.\n\nDiese Mail wurde automatisch aus dem Onboarding-Workflow erzeugt.",
+        "options": {}
+      },
+      "id": "mail-zustaendige",
+      "name": "Aufgabenpaket an Zustaendige",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [1700, 200]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": {"__rl": true, "value": "HIER_SHEET_ID_EINTRAGEN", "mode": "id"},
+        "sheetName": {"__rl": true, "value": "Onboarding-Aufgaben", "mode": "name"},
+        "options": {}
+      },
+      "id": "sheet-lesen",
+      "name": "Alle Onboarding-Aufgaben lesen",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1920, 200],
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prueft alle laufenden Onboardings auf ueberfaellige Punkte, nicht nur den gerade\n// angelegten Vorgang. Warum hier und nicht in einem eigenen Workflow: Jede Meldung\n// eines neuen Mitarbeiters ist ein natuerlicher Anlass, die offene Liste einmal\n// durchzugehen. Wer taeglich erinnern will, dupliziert den Workflow und ersetzt den\n// Webhook durch einen Schedule Trigger.\nfunction datumLesen(wert) {\n  if (!wert) return null;\n  const t = String(wert).trim();\n  const de = t.match(/^(\\d{1,2})\\.(\\d{1,2})\\.(\\d{4})$/);\n  if (de) return new Date(Number(de[3]), Number(de[2]) - 1, Number(de[1]));\n  const iso = t.match(/^(\\d{4})-(\\d{2})-(\\d{2})/);\n  if (iso) return new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]));\n  return null;\n}\n\nconst heute = new Date();\nheute.setHours(0, 0, 0, 0);\nconst aktuellerVorgang = $('Checkliste erzeugen').first().json.vorgang;\n\nconst gruppen = new Map();\nfor (const eintrag of $input.all()) {\n  const z = eintrag.json;\n  const status = String(z.Status ?? '').trim().toLowerCase();\n  if (status === 'erledigt' || status === 'entfaellt') continue;\n\n  const frist = datumLesen(z.Frist);\n  if (!frist || frist >= heute) continue;\n\n  // Der eben angelegte Vorgang kann per Definition noch nicht ueberfaellig sein —\n  // sonst erinnert der Workflow an Aufgaben, die er zwei Sekunden vorher erzeugt hat.\n  if (z.Vorgang === aktuellerVorgang) continue;\n\n  const tageUeberfaellig = Math.round((heute - frist) / 86400000);\n  const mail = z.Zustaendig_Mail || 'HIER_MAIL_PERSONAL_EINTRAGEN';\n  if (!gruppen.has(mail)) gruppen.set(mail, []);\n  gruppen.get(mail).push({ ...z, tage_ueberfaellig: tageUeberfaellig });\n}\n\nif (gruppen.size === 0) {\n  return [{ json: { ueberfaellig_vorhanden: false, anzahl: 0, geprueft_am: heute.toLocaleDateString('de-DE') } }];\n}\n\nconst raus = [];\nfor (const [mail, liste] of gruppen) {\n  liste.sort((x, y) => y.tage_ueberfaellig - x.tage_ueberfaellig);\n  raus.push({\n    json: {\n      ueberfaellig_vorhanden: true,\n      zustaendig: liste[0].Zustaendig,\n      zustaendig_mail: mail,\n      anzahl: liste.length,\n      aeltester_rueckstand_tage: liste[0].tage_ueberfaellig,\n      // Ab 14 Tagen Rueckstand geht eine Kopie an die Personalabteilung.\n      eskalation: liste[0].tage_ueberfaellig >= 14,\n      ueberfaellig_text: liste\n        .map((z) => `- seit ${z.tage_ueberfaellig} Tag(en) offen (Frist ${z.Frist}) — ${z.Mitarbeiter}: ${z.Aufgabe}`)\n        .join('\\n'),\n      geprueft_am: heute.toLocaleDateString('de-DE')\n    }\n  });\n}\nreturn raus;"
+      },
+      "id": "ueberfaellig",
+      "name": "Ueberfaellige Punkte ermitteln",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2140, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {"caseSensitive": true, "version": 2},
+          "conditions": [
+            {"id": "ueberf", "leftValue": "={{ $json.ueberfaellig_vorhanden }}", "rightValue": true, "operator": {"type": "boolean", "operation": "true", "singleValue": true}}
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "weiche-ueberfaellig",
+      "name": "Rueckstaende vorhanden?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2360, 200]
+    },
+    {
+      "parameters": {
+        "fromEmail": "HIER_ABSENDERADRESSE_EINTRAGEN",
+        "toEmail": "={{ $json.zustaendig_mail }}",
+        "subject": "=Erinnerung: {{ $json.anzahl }} ueberfaellige Onboarding-Aufgabe(n) fuer {{ $json.zustaendig }}",
+        "emailFormat": "text",
+        "message": "=Stand {{ $json.geprueft_am }} sind folgende Onboarding-Aufgaben ueberfaellig:\n\n{{ $json.ueberfaellig_text }}\n\n{{ $json.eskalation ? 'Der aelteste Punkt liegt seit ' + $json.aeltester_rueckstand_tage + ' Tagen. Bitte heute klaeren oder an die Personalabteilung zurueckmelden, wenn die Aufgabe entfaellt.' : 'Bitte kurzfristig erledigen oder den Status im Sheet anpassen.' }}\n\nStatus pflegen im Sheet „Onboarding-Aufgaben“: `erledigt` oder `entfaellt`.\n\nAutomatische Erinnerung aus dem Onboarding-Workflow.",
+        "options": {"ccEmail": "={{ $json.eskalation ? 'HIER_MAIL_PERSONAL_EINTRAGEN' : '' }}"}
+      },
+      "id": "mail-erinnerung",
+      "name": "Erinnerung an Zustaendige",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [2580, 100]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {"id": "ok", "name": "ergebnis", "value": "=Keine ueberfaelligen Onboarding-Aufgaben zum Stand {{ $json.geprueft_am }}", "type": "string"}
+          ],
+          "options": {}
+        },
+        "options": {}
+      },
+      "id": "keine-rueckstaende",
+      "name": "Keine Rueckstaende protokollieren",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [2580, 320]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Aus der Checkliste wird der Ablaufplan fuer die neue Person gebaut. Bewusst nur\n// die Punkte, die sie selbst betreffen oder erlebt — Bestellvorgaenge und\n// Sozialversicherungsmeldungen interessieren am ersten Tag niemanden.\nconst aufgaben = $('Checkliste erzeugen').all().map((e) => e.json);\nconst m = $('Stammdaten pruefen').first().json;\n\nconst SICHTBAR = ['Organisation', 'Schulungen', 'IT-Zugaenge'];\nconst plan = aufgaben\n  .filter((a) => SICHTBAR.includes(a.kategorie) && a.versatz_tage >= 0)\n  .sort((x, y) => x.versatz_tage - y.versatz_tage)\n  .map((a) => {\n    const wann = a.versatz_tage === 0 ? 'Erster Arbeitstag' : `ab ${a.frist}`;\n    return `- ${wann}: ${a.aufgabe}`;\n  })\n  .join('\\n');\n\nreturn [{\n  json: {\n    ...m,\n    vorgang: aufgaben[0].vorgang,\n    ablaufplan: plan,\n    anzahl_gesamtaufgaben: aufgaben.length\n  }\n}];"
+      },
+      "id": "willkommensplan",
+      "name": "Willkommensplan aufbereiten",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1260, 480]
+    },
+    {
+      "parameters": {
+        "fromEmail": "HIER_ABSENDERADRESSE_EINTRAGEN",
+        "toEmail": "={{ $json.mail_privat }}",
+        "subject": "=Willkommen an Bord — Ihr Start am {{ $json.eintrittsdatum }}",
+        "emailFormat": "text",
+        "message": "=Hallo {{ $json.vorname }},\n\nwir freuen uns, dass Sie am {{ $json.eintrittsdatum }} als {{ $json.position }} in der Abteilung {{ $json.abteilung }} bei uns anfangen.\n\nIhr Start am Standort {{ $json.standort }}:\nBitte kommen Sie am ersten Tag um 08:00 Uhr zum Empfang. {{ $json.vorgesetzter ? 'Ihre Ansprechperson ist ' + $json.vorgesetzter + '.' : '' }} Bringen Sie bitte Ihren Personalausweis mit.\n\nSo sieht Ihr Ablaufplan aus:\n\n{{ $json.ablaufplan }}\n\nArbeitsplatz, Zugaenge und Ausstattung sind bis zu Ihrem ersten Tag vorbereitet — darum kuemmern sich unsere Kolleginnen und Kollegen bereits.\n\nWenn vorab noch etwas unklar ist, antworten Sie einfach auf diese Mail.\n\nHerzlich willkommen\nIhre Personalabteilung",
+        "options": {}
+      },
+      "id": "mail-willkommen",
+      "name": "Willkommensmail an neue Person",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [1480, 480]
+    }
+  ],
+  "connections": {
+    "Neuer Mitarbeiter gemeldet": {"main": [[{"node": "Stammdaten pruefen", "type": "main", "index": 0}]]},
+    "Stammdaten pruefen": {"main": [[{"node": "Stammdaten vollstaendig?", "type": "main", "index": 0}]]},
+    "Stammdaten vollstaendig?": {"main": [[{"node": "Checkliste erzeugen", "type": "main", "index": 0}], [{"node": "Rueckfrage an Personalabteilung", "type": "main", "index": 0}]]},
+    "Checkliste erzeugen": {"main": [[{"node": "Aufgaben ins Sheet schreiben", "type": "main", "index": 0}, {"node": "Willkommensplan aufbereiten", "type": "main", "index": 0}]]},
+    "Aufgaben ins Sheet schreiben": {"main": [[{"node": "Aufgaben je Zustaendigkeit buendeln", "type": "main", "index": 0}]]},
+    "Aufgaben je Zustaendigkeit buendeln": {"main": [[{"node": "Aufgabenpaket an Zustaendige", "type": "main", "index": 0}]]},
+    "Aufgabenpaket an Zustaendige": {"main": [[{"node": "Alle Onboarding-Aufgaben lesen", "type": "main", "index": 0}]]},
+    "Alle Onboarding-Aufgaben lesen": {"main": [[{"node": "Ueberfaellige Punkte ermitteln", "type": "main", "index": 0}]]},
+    "Ueberfaellige Punkte ermitteln": {"main": [[{"node": "Rueckstaende vorhanden?", "type": "main", "index": 0}]]},
+    "Rueckstaende vorhanden?": {"main": [[{"node": "Erinnerung an Zustaendige", "type": "main", "index": 0}], [{"node": "Keine Rueckstaende protokollieren", "type": "main", "index": 0}]]},
+    "Willkommensplan aufbereiten": {"main": [[{"node": "Willkommensmail an neue Person", "type": "main", "index": 0}]]}
+  },
+  "settings": {"executionOrder": "v1"},
+  "pinData": {}
+}

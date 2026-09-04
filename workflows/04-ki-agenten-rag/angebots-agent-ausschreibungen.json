@@ -1,0 +1,481 @@
+{
+  "name": "Ausschreibungen pruefen und als Entscheidungsvorlage bewerten",
+  "meta": {
+    "beschreibung": "Ueber ein Formular wird eine Ausschreibung als PDF hochgeladen. Der Workflow liest den Text, zerlegt die Unterlagen per KI in Anforderungen, Fristen und Ausschlusskriterien und gleicht jeden Punkt gegen das eigene Leistungsprofil aus einem Google Sheet ab. Ergebnis ist eine Ampel — passt / passt teilweise / passt nicht — mit Begruendung je Anforderung, Fristenhinweis und offenen Punkten, die per Mail an den Vertrieb geht. Bewusst wird kein Angebot erzeugt und nichts an den Auftraggeber gesendet: der Workflow spart die Vorsichtung, die Bietentscheidung bleibt beim Menschen. DSGVO-Hinweis: Vergabeunterlagen enthalten Kontaktdaten von Ansprechpartnern — fuer die Uebergabe an das KI-Modell gilt ein AV-Vertrag oder ein lokales Modell; vertrauliche Verfahren gehoeren nicht in eine Cloud-API.",
+    "kategorie": "KI-Agenten & RAG",
+    "schwierigkeit": "fortgeschritten",
+    "benoetigt": [
+      "n8n-Formular",
+      "OpenAI-API (oder Ollama)",
+      "Google Sheets",
+      "SMTP-Postfach"
+    ],
+    "quelle": "https://die-ki-agentur.de/n8n-agentur/"
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Ausschreibungen vorpruefen (Entscheidungsvorlage)\n\n**Ablauf:** Formular mit PDF-Upload → Text extrahieren → Lesbarkeit pruefen → eigene Kompetenzen\naus Google Sheets laden → KI zerlegt die Ausschreibung in Anforderungen, Fristen und\nAusschlusskriterien → KI gleicht jede Anforderung gegen das eigene Leistungsprofil ab\n→ Ampel-Bewertung mit Begruendung → Ablage in Google Sheets → Zusammenfassung an den Vertrieb.\n\n**Wichtig:** Der Workflow schreibt KEIN Angebot und verschickt nichts nach aussen.\nEr liefert eine Entscheidungsvorlage — bieten oder nicht bieten entscheidet ein Mensch.\n\n**Vor dem Start:**\n1. Google-Sheet \"Kompetenzen\" anlegen, Spalten: bereich, leistung, nachweis, kapazitaet, grenzen\n   (ehrlich ausfuellen — ein geschoentes Profil erzeugt gruene Ampeln fuer Auftraege,\n   die spaeter im Projekt weh tun)\n2. Google-Sheet \"Ausschreibungen\" fuer die Ablage anlegen\n3. OpenAI-Zugangsdaten waehlen, Vertriebsadresse eintragen: HIER_EMPFAENGER_EINTRAGEN\n4. Formular-URL an das Team geben (Node \"Ausschreibung hochladen\", Pfad ausschreibung-pruefen)\n5. Falls n8n das hochgeladene PDF unter einem anderen Binaernamen ablegt, im Node\n   \"Text aus PDF lesen\" den Feldnamen anpassen (einmal testen, dann steht es)\n\n**Grenze der KI:** Gescannte Ausschreibungen ohne Textebene kann der Workflow nicht lesen —\ner meldet das ausdruecklich, statt eine Bewertung auf Basis von nichts zu liefern.\n\n**DSGVO:** Ausschreibungsunterlagen enthalten Ansprechpartner mit Namen und Kontaktdaten.\nFuer die Uebergabe an das KI-Modell gilt ein AV-Vertrag mit dem Anbieter, alternativ ein\nlokales Modell. Vertrauliche Verfahren (VS-NfD) gehoeren nicht in eine Cloud-API.\n\n**Betreuung:** https://die-ki-agentur.de/n8n-agentur/",
+        "height": 820,
+        "width": 520
+      },
+      "id": "note-doku",
+      "name": "Kurzanleitung",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -200,
+        40
+      ]
+    },
+    {
+      "parameters": {
+        "path": "ausschreibung-pruefen",
+        "formTitle": "Ausschreibung vorpruefen lassen",
+        "formDescription": "PDF der Ausschreibung hochladen. Der Assistent zerlegt die Unterlagen und liefert dem Vertrieb eine Ampel-Einschaetzung. Es wird kein Angebot erstellt und nichts an den Auftraggeber gesendet.",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Projektname",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Auftraggeber",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Ausschreibung",
+              "fieldType": "file",
+              "acceptFileTypes": ".pdf",
+              "multipleFiles": false,
+              "requiredField": true
+            }
+          ]
+        },
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "form-upload",
+      "name": "Ausschreibung hochladen",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
+      "position": [
+        380,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "pdf",
+        "binaryPropertyName": "Ausschreibung",
+        "options": {}
+      },
+      "id": "pdf-text",
+      "name": "Text aus PDF lesen",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [
+        600,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Zwei Dinge passieren hier, bevor Geld fuer Tokens ausgegeben wird:\n// 1. Pruefen, ob das PDF ueberhaupt eine Textebene hat. Ausschreibungen kommen oft als\n//    eingescannter Papierstapel. Ohne diese Bremse bewertet die KI einen leeren String\n//    und liefert eine formal saubere, inhaltlich frei erfundene Einschaetzung.\n// 2. Kuerzen. Vergabeunterlagen haben gern 120 Seiten, davon sind 100 Formblaetter und AGB.\n//    Der Anfang und das Ende enthalten in der Praxis Leistungsbeschreibung und Fristen.\nconst roh = String($input.first().json.text || '').replace(/\\r/g, '');\nconst formular = $('Ausschreibung hochladen').first().json;\n\nconst text = roh.replace(/[ \\t]+/g, ' ').replace(/\\n{3,}/g, '\\n\\n').trim();\nconst MAX_ZEICHEN = 45000;\n\nlet gekuerzt = text;\nlet wurde_gekuerzt = false;\nif (text.length > MAX_ZEICHEN) {\n  const kopf = text.slice(0, Math.floor(MAX_ZEICHEN * 0.7));\n  const fuss = text.slice(-Math.floor(MAX_ZEICHEN * 0.3));\n  gekuerzt = kopf + '\\n\\n[... Mittelteil gekuerzt ...]\\n\\n' + fuss;\n  wurde_gekuerzt = true;\n}\n\nreturn [{\n  json: {\n    projektname: formular['Projektname'] || formular.Projektname || '',\n    auftraggeber: formular['Auftraggeber'] || formular.Auftraggeber || '',\n    eingang: new Date().toISOString(),\n    zeichen: text.length,\n    lesbar: text.length >= 500,\n    wurde_gekuerzt,\n    text: gekuerzt,\n  },\n}];"
+      },
+      "id": "code-vorbereiten",
+      "name": "Text vorbereiten",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        820,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "lesbar",
+              "leftValue": "={{ $json.lesbar }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-lesbar",
+      "name": "PDF lesbar?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4.1-mini",
+          "mode": "list"
+        },
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "Du wertest deutsche Ausschreibungen und Vergabeunterlagen aus. Antworte AUSSCHLIESSLICH mit einem JSON-Objekt, keine Erklaerung, kein Markdown.\n\nStruktur:\n{\n  \"gegenstand\": string (ein Satz, was beschafft wird),\n  \"vergabeart\": string oder null (z. B. Oeffentliche Ausschreibung, Beschraenkte Ausschreibung, Verhandlungsverfahren),\n  \"geschaetzter_auftragswert\": string oder null (mit Waehrung, wie im Dokument angegeben),\n  \"leistungsort\": string oder null,\n  \"fristen\": [{\"art\": string (z. B. Abgabefrist, Bieterfragen, Bindefrist, Ausfuehrungsbeginn), \"datum\": \"YYYY-MM-DD\" oder null, \"original\": string}],\n  \"anforderungen\": [{\"anforderung\": string (praezise, eine pro Eintrag), \"kategorie\": \"technisch\"|\"personell\"|\"organisatorisch\"|\"kaufmaennisch\", \"pflicht\": true|false}],\n  \"ausschlusskriterien\": [{\"kriterium\": string, \"nachweis\": string oder null}],\n  \"unklarheiten\": [string]\n}\n\nRegeln: Uebernimm nur, was im Text steht — nichts ergaenzen, nichts schaetzen. Deutsche Datumsangaben (TT.MM.JJJJ) in das Format YYYY-MM-DD umrechnen. Ausschlusskriterien sind Eignungs- und Mindestanforderungen, deren Nichterfuellung zum Ausschluss fuehrt (Zertifikate, Mindestumsatz, Referenzen, Praequalifikation, Tariftreue). Unbekannte Werte: null. Leere Listen sind erlaubt."
+            },
+            {
+              "role": "user",
+              "content": "=Ausschreibung fuer das Projekt \"{{ $json.projektname }}\" von {{ $json.auftraggeber }}. Heutiges Datum: {{ $now.format('yyyy-MM-dd') }}.\n\n---\n{{ $json.text }}"
+            }
+          ]
+        },
+        "jsonOutput": true,
+        "options": {
+          "temperature": 0
+        }
+      },
+      "id": "ki-zerlegen",
+      "name": "Ausschreibung zerlegen",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [
+        1260,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "HIER_SHEET_ID_EINTRAGEN",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Kompetenzen",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "sheet-kompetenzen",
+      "name": "Eigene Kompetenzen laden",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1480,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Das Kompetenz-Sheet wird zu einem kompakten Profiltext verdichtet.\n// Warum nicht die Rohtabelle in den Prompt: Leere Zellen und Spaltenrauschen lenken das\n// Modell ab; ein sauber formulierter Fliesstext je Zeile liefert deutlich stabilere Urteile.\n// Die Spalte \"grenzen\" ist die wichtigste - sie verhindert gruene Ampeln fuer Leistungen,\n// die man zwar irgendwie anbieten koennte, aber nicht belastbar liefern kann.\nconst zeilen = $input.all().map((e) => e.json).filter((z) => z && (z.leistung || z.bereich));\n\nif (zeilen.length === 0) {\n  throw new Error('Das Sheet \"Kompetenzen\" ist leer — ohne eigenes Leistungsprofil ist kein Abgleich moeglich.');\n}\n\nconst profil = zeilen.map((z, i) => {\n  const teile = [];\n  teile.push((i + 1) + '. Bereich: ' + (z.bereich || 'ohne Angabe'));\n  teile.push('Leistung: ' + (z.leistung || 'ohne Angabe'));\n  if (z.nachweis) teile.push('Nachweise/Referenzen: ' + z.nachweis);\n  if (z.kapazitaet) teile.push('Kapazitaet: ' + z.kapazitaet);\n  if (z.grenzen) teile.push('Ausdrueckliche Grenzen: ' + z.grenzen);\n  return teile.join(' | ');\n}).join('\\n');\n\nconst analyse = $('Ausschreibung zerlegen').first().json;\nconst inhalt = analyse.message?.content ?? analyse;\nconst doku = $('Text vorbereiten').first().json;\n\nreturn [{\n  json: {\n    projektname: doku.projektname,\n    auftraggeber: doku.auftraggeber,\n    eingang: doku.eingang,\n    kompetenzprofil: profil,\n    anzahl_kompetenzen: zeilen.length,\n    ausschreibung: inhalt,\n  },\n}];"
+      },
+      "id": "code-profil",
+      "name": "Kompetenzprofil aufbereiten",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1700,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4.1-mini",
+          "mode": "list"
+        },
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "Du bist Vergabeexperte in einem deutschen Mittelstandsbetrieb und pruefst nuechtern, ob der Betrieb eine Ausschreibung bedienen kann. Antworte AUSSCHLIESSLICH mit einem JSON-Objekt, keine Erklaerung, kein Markdown.\n\nStruktur:\n{\n  \"anforderungen\": [{\"anforderung\": string, \"bewertung\": \"erfuellt\"|\"teilweise\"|\"nicht erfuellt\", \"begruendung\": string (ein Satz, mit Bezug auf das Leistungsprofil)}],\n  \"ausschlusskriterien\": [{\"kriterium\": string, \"bewertung\": \"erfuellt\"|\"nicht erfuellt\"|\"unklar\", \"begruendung\": string}],\n  \"staerken\": [string],\n  \"risiken\": [string],\n  \"offene_fragen\": [string]\n}\n\nRegeln:\n- Bewerte jede Anforderung und jedes Ausschlusskriterium einzeln, keine sammelnde Gesamtnote.\n- Grundlage ist ausschliesslich das uebergebene Leistungsprofil. Was dort nicht steht, gilt als nicht nachgewiesen — nicht als vorhanden.\n- Die im Profil genannten Grenzen sind bindend. Eine Leistung jenseits der Grenze ist \"nicht erfuellt\", auch wenn sie fachlich nahe liegt.\n- Ein Ausschlusskriterium ohne passenden Nachweis im Profil ist \"unklar\", nie \"erfuellt\".\n- Wohlwollen ist hier ein Fehler: eine zu optimistische Bewertung fuehrt zu Angebotsaufwand fuer einen Auftrag, den der Betrieb nicht gewinnen oder nicht liefern kann."
+            },
+            {
+              "role": "user",
+              "content": "=EIGENES LEISTUNGSPROFIL ({{ $json.anzahl_kompetenzen }} Eintraege):\n{{ $json.kompetenzprofil }}\n\n---\n\nAUSSCHREIBUNG (strukturiert):\n{{ JSON.stringify($json.ausschreibung) }}"
+            }
+          ]
+        },
+        "jsonOutput": true,
+        "options": {
+          "temperature": 0
+        }
+      },
+      "id": "ki-abgleich",
+      "name": "Gegen eigene Leistungsfaehigkeit abgleichen",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [
+        1920,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Die Gesamtampel wird gerechnet, nicht vom Modell erfragt.\n// Grund: Sprachmodelle neigen zu Wohlwollen (\"passt teilweise\" statt \"passt nicht\") und\n// urteilen bei gleicher Datenlage nicht reproduzierbar. Eine feste Regel ist nachvollziehbar\n// und im Zweifel gegenueber der Geschaeftsfuehrung begruendbar.\nconst roh = $input.first().json;\nconst bewertung = roh.message?.content ?? roh;\nconst basis = $('Kompetenzprofil aufbereiten').first().json;\nconst ausschreibung = basis.ausschreibung || {};\n\nconst anforderungen = Array.isArray(bewertung.anforderungen) ? bewertung.anforderungen : [];\nconst ausschluss = Array.isArray(bewertung.ausschlusskriterien) ? bewertung.ausschlusskriterien : [];\n\nconst zaehle = (liste, wert) => liste.filter((a) => String(a.bewertung || '').toLowerCase() === wert).length;\nconst gruen = zaehle(anforderungen, 'erfuellt');\nconst gelb = zaehle(anforderungen, 'teilweise');\nconst rot = zaehle(anforderungen, 'nicht erfuellt');\nconst gesamt = anforderungen.length || 1;\n\n// Ein nicht erfuelltes Ausschlusskriterium beendet die Pruefung — Eignungs- und\n// Ausschlusskriterien sind im Vergaberecht K.-o.-Kriterien, kein Verhandlungsspielraum.\nconst ausschlussVerletzt = ausschluss.filter((a) => String(a.bewertung || '').toLowerCase() !== 'erfuellt');\n\nlet ampel;\nlet begruendung;\n\nif (ausschlussVerletzt.length > 0) {\n  ampel = 'passt nicht';\n  begruendung = 'Ausschlusskriterium nicht erfuellt: ' +\n    ausschlussVerletzt.map((a) => a.kriterium + ' (' + (a.begruendung || 'ohne Begruendung') + ')').join('; ');\n} else if (rot === 0 && gruen / gesamt >= 0.8) {\n  ampel = 'passt';\n  begruendung = gruen + ' von ' + gesamt + ' Anforderungen vollstaendig erfuellt, keine Luecken bei den Ausschlusskriterien.';\n} else if (rot / gesamt > 0.3) {\n  ampel = 'passt nicht';\n  begruendung = rot + ' von ' + gesamt + ' Anforderungen koennen nicht erfuellt werden — der Aufwand fuer Nachunternehmer duerfte die Marge aufzehren.';\n} else {\n  ampel = 'passt teilweise';\n  begruendung = gruen + ' erfuellt, ' + gelb + ' teilweise, ' + rot + ' offen. Mit Nachunternehmer oder Bietergemeinschaft machbar — vor der Abgabe klaeren.';\n}\n\n// Fristenpruefung: eine perfekt passende Ausschreibung, deren Abgabefrist in vier Tagen\n// laeuft, ist praktisch trotzdem keine. Deshalb steht die Restlaufzeit gleichberechtigt oben.\nconst heute = new Date();\nlet tage_bis_abgabe = null;\nconst frist = (ausschreibung.fristen || []).find((f) => /abgabe|angebot|einreich/i.test(String(f.art || '')));\nconst fristDatum = frist && /^\\d{4}-\\d{2}-\\d{2}$/.test(String(frist.datum || '')) ? new Date(frist.datum) : null;\nif (fristDatum) {\n  tage_bis_abgabe = Math.ceil((fristDatum - heute) / 86400000);\n}\n\nlet fristhinweis = 'Keine eindeutige Abgabefrist im Dokument gefunden — bitte manuell pruefen.';\nif (tage_bis_abgabe !== null) {\n  if (tage_bis_abgabe < 0) fristhinweis = 'Abgabefrist ist bereits abgelaufen (' + frist.datum + ').';\n  else if (tage_bis_abgabe <= 7) fristhinweis = 'Nur noch ' + tage_bis_abgabe + ' Tage bis zur Abgabe (' + frist.datum + ') — sofort entscheiden.';\n  else fristhinweis = 'Noch ' + tage_bis_abgabe + ' Tage bis zur Abgabe (' + frist.datum + ').';\n}\n\nconst zeile = (a) => '- [' + String(a.bewertung || '?').toUpperCase() + '] ' + a.anforderung + ': ' + (a.begruendung || '');\n\nreturn [{\n  json: {\n    projektname: basis.projektname,\n    auftraggeber: basis.auftraggeber,\n    eingang: basis.eingang,\n    ampel,\n    begruendung,\n    fristhinweis,\n    tage_bis_abgabe,\n    anzahl_anforderungen: anforderungen.length,\n    erfuellt: gruen,\n    teilweise: gelb,\n    offen: rot,\n    ausschluss_verletzt: ausschlussVerletzt.length,\n    gegenstand: ausschreibung.gegenstand || '',\n    auftragswert: ausschreibung.geschaetzter_auftragswert || 'nicht angegeben',\n    detailliste: anforderungen.map(zeile).join('\\n') || 'Keine Anforderungen erkannt.',\n    ausschlussliste: ausschluss.map((a) => '- [' + String(a.bewertung || '?').toUpperCase() + '] ' + a.kriterium + ': ' + (a.begruendung || '')).join('\\n') || 'Keine Ausschlusskriterien erkannt.',\n    offene_punkte: (bewertung.offene_fragen || []).join(' | ') || 'keine',\n  },\n}];"
+      },
+      "id": "code-ampel",
+      "name": "Ampel berechnen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2140,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "HIER_SHEET_ID_EINTRAGEN",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Ausschreibungen",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "eingang": "={{ $json.eingang }}",
+            "projektname": "={{ $json.projektname }}",
+            "auftraggeber": "={{ $json.auftraggeber }}",
+            "ampel": "={{ $json.ampel }}",
+            "begruendung": "={{ $json.begruendung }}",
+            "tage_bis_abgabe": "={{ $json.tage_bis_abgabe }}",
+            "erfuellt": "={{ $json.erfuellt }}",
+            "teilweise": "={{ $json.teilweise }}",
+            "offen": "={{ $json.offen }}",
+            "auftragswert": "={{ $json.auftragswert }}",
+            "entscheidung": "offen"
+          }
+        },
+        "options": {}
+      },
+      "id": "sheet-ablage",
+      "name": "Bewertung ablegen",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        2360,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "HIER_EMPFAENGER_EINTRAGEN",
+        "subject": "=[{{ $('Ampel berechnen').item.json.ampel.toUpperCase() }}] Ausschreibung {{ $('Ampel berechnen').item.json.projektname }}",
+        "emailType": "text",
+        "message": "=ENTSCHEIDUNGSVORLAGE — kein Angebot, keine Zusage.\n\nProjekt: {{ $('Ampel berechnen').item.json.projektname }}\nAuftraggeber: {{ $('Ampel berechnen').item.json.auftraggeber }}\nGegenstand: {{ $('Ampel berechnen').item.json.gegenstand }}\nGeschaetzter Auftragswert: {{ $('Ampel berechnen').item.json.auftragswert }}\n\nBEWERTUNG: {{ $('Ampel berechnen').item.json.ampel.toUpperCase() }}\n{{ $('Ampel berechnen').item.json.begruendung }}\n\nFRIST: {{ $('Ampel berechnen').item.json.fristhinweis }}\n\nANFORDERUNGEN ({{ $('Ampel berechnen').item.json.erfuellt }} erfuellt / {{ $('Ampel berechnen').item.json.teilweise }} teilweise / {{ $('Ampel berechnen').item.json.offen }} offen):\n{{ $('Ampel berechnen').item.json.detailliste }}\n\nAUSSCHLUSSKRITERIEN:\n{{ $('Ampel berechnen').item.json.ausschlussliste }}\n\nVOR DER ENTSCHEIDUNG KLAEREN:\n{{ $('Ampel berechnen').item.json.offene_punkte }}\n\n---\nDiese Vorlage wurde von einem KI-Assistenten aus dem hochgeladenen PDF erstellt und ist nicht geprueft. Massgeblich sind die Originalunterlagen. Ob geboten wird, entscheidet der Vertrieb.",
+        "options": {}
+      },
+      "id": "mail-vertrieb",
+      "name": "Zusammenfassung an Vertrieb",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        2580,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "grund",
+              "name": "grund",
+              "value": "=Das PDF enthaelt nur {{ $json.zeichen }} Zeichen Text — vermutlich ein Scan ohne Textebene. Ohne lesbaren Text ist keine belastbare Bewertung moeglich.",
+              "type": "string"
+            },
+            {
+              "id": "aktion",
+              "name": "naechster_schritt",
+              "value": "Unterlagen beim Auftraggeber als durchsuchbares PDF anfordern oder vorher durch eine OCR-Software laufen lassen, dann erneut hochladen.",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "set-unlesbar",
+      "name": "Unlesbares PDF vermerken",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1260,
+        520
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "HIER_EMPFAENGER_EINTRAGEN",
+        "subject": "=[PRUEFUNG NICHT MOEGLICH] Ausschreibung {{ $('Text vorbereiten').item.json.projektname }}",
+        "emailType": "text",
+        "message": "=Die hochgeladene Ausschreibung konnte nicht ausgewertet werden.\n\nProjekt: {{ $('Text vorbereiten').item.json.projektname }}\nAuftraggeber: {{ $('Text vorbereiten').item.json.auftraggeber }}\n\nGrund: {{ $json.grund }}\n\nNaechster Schritt: {{ $json.naechster_schritt }}",
+        "options": {}
+      },
+      "id": "mail-unlesbar",
+      "name": "Hinweis an Vertrieb",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        1480,
+        520
+      ]
+    }
+  ],
+  "connections": {
+    "Ausschreibung hochladen": {
+      "main": [
+        [
+          {
+            "node": "Text aus PDF lesen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Text aus PDF lesen": {
+      "main": [
+        [
+          {
+            "node": "Text vorbereiten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Text vorbereiten": {
+      "main": [
+        [
+          {
+            "node": "PDF lesbar?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PDF lesbar?": {
+      "main": [
+        [
+          {
+            "node": "Ausschreibung zerlegen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Unlesbares PDF vermerken",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ausschreibung zerlegen": {
+      "main": [
+        [
+          {
+            "node": "Eigene Kompetenzen laden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Eigene Kompetenzen laden": {
+      "main": [
+        [
+          {
+            "node": "Kompetenzprofil aufbereiten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kompetenzprofil aufbereiten": {
+      "main": [
+        [
+          {
+            "node": "Gegen eigene Leistungsfaehigkeit abgleichen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gegen eigene Leistungsfaehigkeit abgleichen": {
+      "main": [
+        [
+          {
+            "node": "Ampel berechnen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ampel berechnen": {
+      "main": [
+        [
+          {
+            "node": "Bewertung ablegen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bewertung ablegen": {
+      "main": [
+        [
+          {
+            "node": "Zusammenfassung an Vertrieb",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Unlesbares PDF vermerken": {
+      "main": [
+        [
+          {
+            "node": "Hinweis an Vertrieb",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

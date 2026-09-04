@@ -1,0 +1,590 @@
+{
+  "name": "Wartungstermine und Prueffristen automatisch nachhalten",
+  "meta": {
+    "beschreibung": "Prueft einmal im Monat die Anlagenliste eines Handwerks- oder Produktionsbetriebs, rechnet aus Wartungsintervall und gesetzlicher Prueffrist aus, welche Anlagen faellig oder ueberfaellig sind, und schickt den Kunden ein Terminangebot. Bereits eingegangene Rueckmeldungen aus dem Antwortformular werden zugeordnet, sodass niemand doppelt angeschrieben wird; am Ende entsteht eine sortierte Planungsliste fuer die Disposition. Gesetzliche Pruefungen (z. B. nach BetrSichV, DGUV V3, TRGS 511, KUEO oder Heizungspruefung) werden getrennt vom freiwilligen Wartungsintervall gefuehrt und mit Vorrang eskaliert. DSGVO-Hinweis: Die Liste enthaelt Kundenstammdaten — Zugriff auf das Sheet auf die Disposition beschraenken und Loeschfristen aus dem Loeschkonzept beachten.",
+    "kategorie": "Handwerk & Produktion",
+    "schwierigkeit": "mittel",
+    "benoetigt": [
+      "Google Sheets",
+      "SMTP-Postausgang"
+    ],
+    "quelle": "https://die-ki-agentur.de/n8n-agentur/"
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Wartung und Pruefung nie wieder verschlafen\n\n**Ablauf:** Am 1. jedes Monats → Anlagenliste lesen → Faelligkeiten rechnen (Wartungsintervall UND gesetzliche Pruefristen) → Rueckmeldungen abgleichen → Terminangebot oder Erinnerung mailen → Planungsliste fuer die Disposition schreiben.\n\n**Drei Tabellenblaetter im selben Sheet:**\n1. `Anlagen` — Spalten: Anlage_ID, Kunde, Kunde_Mail, Standort, Anlagentyp, Letzte_Wartung (TT.MM.JJJJ), Wartungsintervall_Monate, Gesetzliche_Pruefung, Pruefintervall_Monate, Letzte_Pruefung, Letztes_Anschreiben\n2. `Rueckmeldungen` — Spalten: Anlage_ID, Antwort (zusage/absage/rueckruf), Wunschtermin, Eingang — wird vom Antwortformular des Kunden gefuellt\n3. `Dispositionsliste` — Ausgabe dieses Workflows, Spalten siehe letzter Node\n\n**Vor dem Start:**\n1. `HIER_SHEET_ID_EINTRAGEN` in den drei Google-Sheets-Nodes ersetzen\n2. Absenderadresse und `HIER_ANTWORTFORMULAR_URL` in den Mail-Nodes setzen\n3. Vorlauf (Standard 45 Tage) und Pruef-Vorlauf (60 Tage) im Node „Faelligkeiten berechnen“ an den Betrieb anpassen\n4. Gesetzliche Pruefristen je Anlagentyp mit dem Sachkundigen abstimmen — der Workflow rechnet nur, was in der Spalte `Pruefintervall_Monate` steht\n\n**Betreuung:** https://die-ki-agentur.de/n8n-agentur/",
+        "height": 620,
+        "width": 500
+      },
+      "id": "note-doku",
+      "name": "Kurzanleitung",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -180,
+        40
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "months",
+              "triggerAtDayOfMonth": 1,
+              "triggerAtHour": 7,
+              "triggerAtMinute": 0
+            }
+          ]
+        }
+      },
+      "id": "trigger-monatlich",
+      "name": "Monatlicher Lauf",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        380,
+        340
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "HIER_SHEET_ID_EINTRAGEN",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Anlagen",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "sheet-anlagen",
+      "name": "Anlagenliste lesen",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        600,
+        340
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Rechnet je Anlage zwei getrennte Termine aus: die vertragliche Wartung und die\n// gesetzlich vorgeschriebene Pruefung. Warum getrennt: Eine verpasste Wartung kostet\n// Geld, eine verpasste Pruefung kostet den Versicherungsschutz — die Pruefung hat\n// deshalb immer Vorrang und einen laengeren Vorlauf.\nconst VORLAUF_WARTUNG_TAGE = 45;\nconst VORLAUF_PRUEFUNG_TAGE = 60;\nconst TAG_MS = 86400000;\n\n// Deutsche Datumsangaben (TT.MM.JJJJ) sicher einlesen — Sheets liefert sie als Text,\n// new Date('01.03.2026') wuerde je nach Umgebung falsch oder gar nicht parsen.\nfunction datumLesen(wert) {\n  if (!wert) return null;\n  const t = String(wert).trim();\n  const de = t.match(/^(\\d{1,2})\\.(\\d{1,2})\\.(\\d{4})$/);\n  if (de) return new Date(Number(de[3]), Number(de[2]) - 1, Number(de[1]));\n  const iso = t.match(/^(\\d{4})-(\\d{2})-(\\d{2})/);\n  if (iso) return new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]));\n  return null;\n}\n\nfunction monateDazu(datum, monate) {\n  const d = new Date(datum.getTime());\n  d.setMonth(d.getMonth() + Number(monate));\n  return d;\n}\n\nconst zweiStellig = (n) => String(n).padStart(2, '0');\nconst datumDe = (d) => (d ? `${zweiStellig(d.getDate())}.${zweiStellig(d.getMonth() + 1)}.${d.getFullYear()}` : null);\n\nconst heute = new Date();\nheute.setHours(0, 0, 0, 0);\n\nconst raus = [];\nfor (const eintrag of $input.all()) {\n  const a = eintrag.json;\n\n  const letzteWartung = datumLesen(a.Letzte_Wartung);\n  const wartungsintervall = Number(a.Wartungsintervall_Monate) || 0;\n  const letztePruefung = datumLesen(a.Letzte_Pruefung);\n  const pruefintervall = Number(a.Pruefintervall_Monate) || 0;\n\n  const naechsteWartung = letzteWartung && wartungsintervall ? monateDazu(letzteWartung, wartungsintervall) : null;\n  const naechstePruefung = letztePruefung && pruefintervall ? monateDazu(letztePruefung, pruefintervall) : null;\n\n  const tageWartung = naechsteWartung ? Math.round((naechsteWartung - heute) / TAG_MS) : null;\n  const tagePruefung = naechstePruefung ? Math.round((naechstePruefung - heute) / TAG_MS) : null;\n\n  const wartungFaellig = tageWartung !== null && tageWartung <= VORLAUF_WARTUNG_TAGE;\n  const pruefungFaellig = tagePruefung !== null && tagePruefung <= VORLAUF_PRUEFUNG_TAGE;\n  const pruefungUeberfaellig = tagePruefung !== null && tagePruefung < 0;\n  const wartungUeberfaellig = tageWartung !== null && tageWartung < 0;\n\n  // Datenluecken sichtbar machen statt stillschweigend ueberspringen — eine Anlage\n  // ohne Intervall faellt sonst fuer immer aus der Planung.\n  const datenLuecke = !letzteWartung || !wartungsintervall || (a.Gesetzliche_Pruefung && !pruefintervall);\n\n  let prioritaet = 'normal';\n  if (pruefungUeberfaellig) prioritaet = 'kritisch';\n  else if (wartungUeberfaellig || (pruefungFaellig && tagePruefung <= 30)) prioritaet = 'hoch';\n\n  // Der frueheste der beiden Termine bestimmt, wann angeschrieben wird.\n  const kandidaten = [tageWartung, tagePruefung].filter((t) => t !== null);\n  const tageBisFaelligkeit = kandidaten.length ? Math.min(...kandidaten) : null;\n\n  raus.push({\n    json: {\n      anlage_id: a.Anlage_ID ?? '',\n      kunde: a.Kunde ?? '',\n      kunde_mail: a.Kunde_Mail ?? '',\n      standort: a.Standort ?? '',\n      anlagentyp: a.Anlagentyp ?? '',\n      letzte_wartung: datumDe(letzteWartung),\n      wartungsintervall_monate: wartungsintervall,\n      naechste_wartung: datumDe(naechsteWartung),\n      tage_bis_wartung: tageWartung,\n      gesetzliche_pruefung: a.Gesetzliche_Pruefung || null,\n      pruefintervall_monate: pruefintervall,\n      letzte_pruefung: datumDe(letztePruefung),\n      naechste_pruefung: datumDe(naechstePruefung),\n      tage_bis_pruefung: tagePruefung,\n      pruefung_ueberfaellig: pruefungUeberfaellig,\n      wartung_ueberfaellig: wartungUeberfaellig,\n      tage_bis_faelligkeit: tageBisFaelligkeit,\n      prioritaet,\n      daten_luecke: datenLuecke,\n      letztes_anschreiben: a.Letztes_Anschreiben || null,\n      handlungsbedarf: Boolean(wartungFaellig || pruefungFaellig || datenLuecke),\n      lauf_datum: datumDe(heute)\n    }\n  });\n}\n\n// Kritische Faelle nach oben — die Disposition arbeitet die Liste von oben ab.\nconst rang = { kritisch: 0, hoch: 1, normal: 2 };\nraus.sort((x, y) => (rang[x.json.prioritaet] - rang[y.json.prioritaet]) || ((x.json.tage_bis_faelligkeit ?? 9999) - (y.json.tage_bis_faelligkeit ?? 9999)));\nreturn raus;"
+      },
+      "id": "faelligkeiten",
+      "name": "Faelligkeiten berechnen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        820,
+        340
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "bedarf",
+              "leftValue": "={{ $json.handlungsbedarf }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "weiche-faellig",
+      "name": "Handlungsbedarf?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        340
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "HIER_SHEET_ID_EINTRAGEN",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Rueckmeldungen",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "sheet-rueckmeldungen",
+      "name": "Rueckmeldungen lesen",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1260,
+        240
+      ],
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Ordnet die Rueckmeldungen aus dem Antwortformular den faelligen Anlagen zu.\n// Warum das vor dem Mailversand passiert: Wer letzte Woche schon zugesagt hat, darf\n// nicht erneut angeschrieben werden — genau daran scheitern die meisten\n// Wartungserinnerungen in der Praxis.\nconst faellige = $('Faelligkeiten berechnen').all().map((e) => e.json);\n\n// Rueckmeldungen liegen chronologisch vor; die juengste pro Anlage gewinnt.\nconst antworten = new Map();\nfor (const eintrag of $input.all()) {\n  const r = eintrag.json;\n  const id = String(r.Anlage_ID ?? '').trim();\n  if (!id) continue;\n  antworten.set(id, {\n    antwort: String(r.Antwort ?? '').trim().toLowerCase(),\n    wunschtermin: r.Wunschtermin || null,\n    eingang: r.Eingang || null\n  });\n}\n\nconst raus = [];\nfor (const anlage of faellige) {\n  if (!anlage.handlungsbedarf) continue;\n\n  const r = antworten.get(String(anlage.anlage_id).trim());\n  const zugesagt = Boolean(r && ['zusage', 'ja', 'bestaetigt', 'bestätigt'].includes(r.antwort));\n  const rueckruf = Boolean(r && ['rueckruf', 'rückruf', 'telefon'].includes(r.antwort));\n  const abgesagt = Boolean(r && ['absage', 'nein'].includes(r.antwort));\n\n  // Fallunterscheidung fuer die Weiche: erst Rueckmeldung, dann Erinnerung,\n  // dann Erstanschreiben. Ohne Mailadresse geht nichts raus.\n  let fall;\n  if (anlage.daten_luecke && !anlage.naechste_wartung && !anlage.naechste_pruefung) fall = 'pruefen';\n  else if (!anlage.kunde_mail) fall = 'pruefen';\n  else if (r) fall = 'rueckmeldung';\n  else if (anlage.letztes_anschreiben) fall = 'erinnerung';\n  else fall = 'erstanschreiben';\n\n  raus.push({\n    json: {\n      ...anlage,\n      bearbeitungsfall: fall,\n      rueckmeldung_vorhanden: Boolean(r),\n      rueckmeldung_art: r ? r.antwort : null,\n      rueckmeldung_wunschtermin: r ? r.wunschtermin : null,\n      rueckmeldung_eingang: r ? r.eingang : null,\n      termin_steht: zugesagt,\n      rueckruf_gewuenscht: rueckruf,\n      abgesagt,\n      anschreiben_grund: anlage.pruefung_ueberfaellig\n        ? `Gesetzliche Pruefung (${anlage.gesetzliche_pruefung || 'Pruefpflicht'}) seit ${Math.abs(anlage.tage_bis_pruefung)} Tagen ueberfaellig`\n        : (anlage.wartung_ueberfaellig\n          ? `Wartung seit ${Math.abs(anlage.tage_bis_wartung)} Tagen ueberfaellig`\n          : `Faellig in ${anlage.tage_bis_faelligkeit} Tagen`)\n    }\n  });\n}\nreturn raus;"
+      },
+      "id": "zuordnen",
+      "name": "Rueckmeldungen zuordnen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1480,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "r1",
+                    "leftValue": "={{ $json.bearbeitungsfall }}",
+                    "rightValue": "rueckmeldung",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Rueckmeldung liegt vor"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "r2",
+                    "leftValue": "={{ $json.bearbeitungsfall }}",
+                    "rightValue": "erinnerung",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Erinnerung noetig"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "r3",
+                    "leftValue": "={{ $json.bearbeitungsfall }}",
+                    "rightValue": "erstanschreiben",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Erstanschreiben"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "Manuell pruefen"
+        }
+      },
+      "id": "weiche-fall",
+      "name": "Bearbeitungsfall",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        1700,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "HIER_ABSENDERADRESSE_EINTRAGEN",
+        "toEmail": "={{ $json.kunde_mail }}",
+        "subject": "=Wartungstermin faellig: {{ $json.anlagentyp }} ({{ $json.standort }})",
+        "emailFormat": "text",
+        "message": "=Guten Tag {{ $json.kunde }},\n\nfuer Ihre Anlage steht der naechste Termin an:\n\nAnlage: {{ $json.anlagentyp }} ({{ $json.anlage_id }})\nStandort: {{ $json.standort }}\nLetzte Wartung: {{ $json.letzte_wartung }}\nNaechste Wartung faellig: {{ $json.naechste_wartung }}\nGesetzliche Pruefung: {{ $json.gesetzliche_pruefung || 'keine hinterlegt' }}{{ $json.naechste_pruefung ? ' — faellig am ' + $json.naechste_pruefung : '' }}\n\nBitte nennen Sie uns einen Wunschtermin ueber dieses Formular:\nHIER_ANTWORTFORMULAR_URL\n\nAlternativ antworten Sie einfach auf diese Mail. Wir stimmen den Termin dann telefonisch ab.\n\nMit freundlichen Gruessen\nIhr Wartungsteam\n\n---\nAutomatisch erzeugte Terminerinnerung aus unserer Anlagenverwaltung.",
+        "options": {}
+      },
+      "id": "mail-erstanschreiben",
+      "name": "Terminangebot an Kunden",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        1920,
+        440
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "HIER_ABSENDERADRESSE_EINTRAGEN",
+        "toEmail": "={{ $json.kunde_mail }}",
+        "subject": "=Erinnerung: {{ $json.prioritaet === 'kritisch' ? 'Gesetzliche Pruefung ueberfaellig' : 'Wartungstermin noch offen' }} — {{ $json.anlagentyp }}",
+        "emailFormat": "text",
+        "message": "=Guten Tag {{ $json.kunde }},\n\nwir haben Sie am {{ $json.letztes_anschreiben }} zum Wartungstermin fuer Ihre Anlage {{ $json.anlagentyp }} ({{ $json.anlage_id }}, {{ $json.standort }}) angeschrieben. Eine Rueckmeldung liegt uns bisher nicht vor.\n\nStand: {{ $json.anschreiben_grund }}\n{{ $json.gesetzliche_pruefung ? 'Hinweis: Fuer diese Anlage gilt eine gesetzliche Pruefpflicht (' + $json.gesetzliche_pruefung + '). Ohne fristgerechte Pruefung kann der Versicherungsschutz eingeschraenkt sein.' : '' }}\n\nBitte nennen Sie uns kurz einen Wunschtermin:\nHIER_ANTWORTFORMULAR_URL\n\nMit freundlichen Gruessen\nIhr Wartungsteam\n\n---\nAutomatisch erzeugte Terminerinnerung aus unserer Anlagenverwaltung.",
+        "options": {}
+      },
+      "id": "mail-erinnerung",
+      "name": "Erinnerung an Kunden",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        1920,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "f1",
+              "name": "lauf_datum",
+              "value": "={{ $('Rueckmeldungen zuordnen').item.json.lauf_datum }}",
+              "type": "string"
+            },
+            {
+              "id": "f2",
+              "name": "prioritaet",
+              "value": "={{ $('Rueckmeldungen zuordnen').item.json.prioritaet }}",
+              "type": "string"
+            },
+            {
+              "id": "f3",
+              "name": "anlage_id",
+              "value": "={{ $('Rueckmeldungen zuordnen').item.json.anlage_id }}",
+              "type": "string"
+            },
+            {
+              "id": "f4",
+              "name": "kunde",
+              "value": "={{ $('Rueckmeldungen zuordnen').item.json.kunde }}",
+              "type": "string"
+            },
+            {
+              "id": "f5",
+              "name": "standort",
+              "value": "={{ $('Rueckmeldungen zuordnen').item.json.standort }}",
+              "type": "string"
+            },
+            {
+              "id": "f6",
+              "name": "anlagentyp",
+              "value": "={{ $('Rueckmeldungen zuordnen').item.json.anlagentyp }}",
+              "type": "string"
+            },
+            {
+              "id": "f7",
+              "name": "naechste_wartung",
+              "value": "={{ $('Rueckmeldungen zuordnen').item.json.naechste_wartung }}",
+              "type": "string"
+            },
+            {
+              "id": "f8",
+              "name": "naechste_pruefung",
+              "value": "={{ $('Rueckmeldungen zuordnen').item.json.naechste_pruefung || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "f9",
+              "name": "anschreiben_grund",
+              "value": "={{ $('Rueckmeldungen zuordnen').item.json.anschreiben_grund }}",
+              "type": "string"
+            },
+            {
+              "id": "f10",
+              "name": "pruefpflicht_hinweis",
+              "value": "={{ $('Rueckmeldungen zuordnen').item.json.gesetzliche_pruefung ? $('Rueckmeldungen zuordnen').item.json.gesetzliche_pruefung + ' — Frist ' + ($('Rueckmeldungen zuordnen').item.json.naechste_pruefung || 'unbekannt') : 'keine gesetzliche Pruefpflicht hinterlegt' }}",
+              "type": "string"
+            },
+            {
+              "id": "f11",
+              "name": "dispo_status",
+              "value": "={{ $('Rueckmeldungen zuordnen').item.json.termin_steht ? 'Termin zugesagt — einplanen' : ($('Rueckmeldungen zuordnen').item.json.rueckruf_gewuenscht ? 'Rueckruf gewuenscht' : ($('Rueckmeldungen zuordnen').item.json.abgesagt ? 'Abgesagt — Vertrag pruefen' : ($('Rueckmeldungen zuordnen').item.json.bearbeitungsfall === 'pruefen' ? 'Stammdaten unvollstaendig' : ($('Rueckmeldungen zuordnen').item.json.bearbeitungsfall === 'erinnerung' ? 'Erinnerung verschickt' : 'Terminangebot verschickt')))) }}",
+              "type": "string"
+            },
+            {
+              "id": "f12",
+              "name": "aufgabe_disposition",
+              "value": "={{ $('Rueckmeldungen zuordnen').item.json.termin_steht ? 'Monteur und Material fuer ' + ($('Rueckmeldungen zuordnen').item.json.rueckmeldung_wunschtermin || 'Wunschtermin offen') + ' einplanen' : ($('Rueckmeldungen zuordnen').item.json.bearbeitungsfall === 'pruefen' ? 'Stammdaten im Blatt Anlagen ergaenzen (Intervall oder Mailadresse fehlt)' : 'Auf Rueckmeldung warten, in 14 Tagen erneut pruefen') }}",
+              "type": "string"
+            },
+            {
+              "id": "f13",
+              "name": "wiedervorlage",
+              "value": "={{ new Date(Date.now() + ($('Rueckmeldungen zuordnen').item.json.prioritaet === 'kritisch' ? 7 : 14) * 86400000).toLocaleDateString('de-DE') }}",
+              "type": "string"
+            }
+          ],
+          "options": {}
+        },
+        "options": {}
+      },
+      "id": "planungseintrag",
+      "name": "Planungseintrag aufbauen",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2140,
+        340
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "HIER_SHEET_ID_EINTRAGEN",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Dispositionsliste",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Lauf": "={{ $json.lauf_datum }}",
+            "Prioritaet": "={{ $json.prioritaet }}",
+            "Anlage_ID": "={{ $json.anlage_id }}",
+            "Kunde": "={{ $json.kunde }}",
+            "Standort": "={{ $json.standort }}",
+            "Anlagentyp": "={{ $json.anlagentyp }}",
+            "Naechste_Wartung": "={{ $json.naechste_wartung }}",
+            "Naechste_Pruefung": "={{ $json.naechste_pruefung }}",
+            "Pruefpflicht": "={{ $json.pruefpflicht_hinweis }}",
+            "Grund": "={{ $json.anschreiben_grund }}",
+            "Status": "={{ $json.dispo_status }}",
+            "Aufgabe": "={{ $json.aufgabe_disposition }}",
+            "Wiedervorlage": "={{ $json.wiedervorlage }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "sheet-dispo",
+      "name": "Dispositionsliste schreiben",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        2360,
+        340
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "nix",
+              "name": "ergebnis",
+              "value": "=Anlage {{ $json.anlage_id }} ({{ $json.anlagentyp }}) ist nicht faellig — naechste Wartung {{ $json.naechste_wartung }}, naechste Pruefung {{ $json.naechste_pruefung || 'keine' }}",
+              "type": "string"
+            }
+          ],
+          "options": {}
+        },
+        "options": {}
+      },
+      "id": "nicht-faellig",
+      "name": "Nicht faellig protokollieren",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1260,
+        560
+      ]
+    }
+  ],
+  "connections": {
+    "Monatlicher Lauf": {
+      "main": [
+        [
+          {
+            "node": "Anlagenliste lesen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anlagenliste lesen": {
+      "main": [
+        [
+          {
+            "node": "Faelligkeiten berechnen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Faelligkeiten berechnen": {
+      "main": [
+        [
+          {
+            "node": "Handlungsbedarf?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Handlungsbedarf?": {
+      "main": [
+        [
+          {
+            "node": "Rueckmeldungen lesen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Nicht faellig protokollieren",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rueckmeldungen lesen": {
+      "main": [
+        [
+          {
+            "node": "Rueckmeldungen zuordnen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rueckmeldungen zuordnen": {
+      "main": [
+        [
+          {
+            "node": "Bearbeitungsfall",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bearbeitungsfall": {
+      "main": [
+        [
+          {
+            "node": "Planungseintrag aufbauen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Erinnerung an Kunden",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Terminangebot an Kunden",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Planungseintrag aufbauen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Erinnerung an Kunden": {
+      "main": [
+        [
+          {
+            "node": "Planungseintrag aufbauen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Terminangebot an Kunden": {
+      "main": [
+        [
+          {
+            "node": "Planungseintrag aufbauen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Planungseintrag aufbauen": {
+      "main": [
+        [
+          {
+            "node": "Dispositionsliste schreiben",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

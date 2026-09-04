@@ -1,0 +1,260 @@
+{
+  "name": "FAQ-Chatbot mit eigener Wissensbasis und Uebergabe an Mitarbeiter",
+  "meta": {
+    "beschreibung": "Nimmt Chat-Anfragen per Webhook entgegen, sucht die passenden Stellen in der eigenen Wissensbasis (Vector Store oder Retrieval-API, als Platzhalter hinterlegt) und laesst einen KI-Agenten ausschliesslich aus diesen Treffern antworten - mit Quellenangabe und Konfidenzwert. Reicht die Beleglage nicht, wird nicht geraten, sondern an einen Mitarbeiter uebergeben. Jede Konversation wird protokolliert. Pflicht-Hinweis: Chatbots muessen sich nach Art. 50 EU AI Act seit dem 02.08.2026 als KI zu erkennen geben - der Workflow liefert diesen Hinweis in jeder Antwort mit (Feld 'ki_hinweis'), er muss in der Chat-Oberflaeche sichtbar ausgegeben werden. DSGVO-Hinweis: Frage und Session-ID gehen an den KI-Anbieter, deshalb AV-Vertrag schliessen oder lokales Modell nutzen; das Protokoll enthaelt personenbezogene Daten und braucht eine Loeschfrist.",
+    "kategorie": "Kundenservice",
+    "schwierigkeit": "fortgeschritten",
+    "benoetigt": ["Webhook-faehiges Chat-Frontend", "Wissensbasis mit Such-API (Vector Store, Qdrant, Typesense o. ae.)", "OpenAI-API (oder Ollama)", "Google Sheets fuer das Protokoll", "SMTP-Versand"],
+    "quelle": "https://die-ki-agentur.de/n8n-agentur/"
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## FAQ-Chatbot mit Wissensbasis\n\n**Ablauf:** Webhook (POST) → Frage pruefen → Wissensbasis durchsuchen → KI-Agent antwortet NUR aus den Treffern → Konfidenz- und Quellenpruefung → belastbar: Antwort mit Quellen / unsicher: Uebergabe an einen Mitarbeiter → Protokoll → Antwort an den Chat.\n\n**Der Bot raet nicht.** Ohne ausreichende Belege wird uebergeben statt geantwortet.\n\n**Vor dem Start:**\n1. In `Wissensbasis durchsuchen` die Such-URL eintragen (HIER_WISSENSBASIS_URL)\n2. Wissensbasis befuellen - ohne gepflegte Inhalte antwortet der Bot zu Recht nichts\n3. Google-Sheet mit Spalten anlegen: Zeitpunkt, Session, Frage, Antwort, Konfidenz, Quellen, Uebergabe\n4. Postfach fuer die Uebergabe in `Mitarbeiter benachrichtigen` eintragen\n5. Schwelle in `Konfidenz und Quellen pruefen` an die eigene Fehlertoleranz anpassen (Start: 0.75)\n\n**Pflicht (Art. 50 EU AI Act, seit 02.08.2026):** Das Feld `ki_hinweis` aus der Antwort muss im Chat sichtbar sein - der Nutzer muss wissen, dass er mit einer KI spricht.\n\n**Betreuung:** https://die-ki-agentur.de/n8n-agentur/",
+        "height": 640,
+        "width": 480
+      },
+      "id": "note-doku",
+      "name": "Kurzanleitung",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-160, -60]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "faq-chat",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-chat",
+      "name": "Chat-Anfrage empfangen",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [380, 300],
+      "webhookId": "a1f4c2d8-5b7e-4c31-9a6d-2f8e1b0c7d45"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Eingangspruefung, bevor ein Token verbrannt wird. Drei Faelle laufen sonst\n// regelmaessig in teure Leerlaeufe: leere Nachrichten aus Tippfeldern,\n// Copy-Paste-Romane und fehlende Session-IDs (ohne die laesst sich ein\n// Gespraech spaeter nicht mehr nachvollziehen).\nconst MIN_ZEICHEN = 5;\nconst MAX_ZEICHEN = 1500;\n\nconst body = $input.first().json.body ?? $input.first().json;\nconst frage = String(body.frage ?? body.message ?? '').trim();\nconst session = String(body.session_id ?? '').trim();\n\nconst maengel = [];\nif (frage.length < MIN_ZEICHEN) maengel.push('Die Frage ist zu kurz. Bitte in einem ganzen Satz beschreiben, worum es geht.');\nif (frage.length > MAX_ZEICHEN) maengel.push('Die Nachricht ist sehr lang. Bitte auf eine konkrete Frage kuerzen.');\nif (!session) maengel.push('Es fehlt eine Session-Kennung.');\n\nreturn [{\n  json: {\n    frage: frage.slice(0, MAX_ZEICHEN),\n    session_id: session || ('unbekannt-' + Date.now()),\n    kanal: body.kanal ?? 'Website-Chat',\n    kunde_id: body.kunde_id ?? null,\n    eingang_iso: new Date().toISOString(),\n    eingang_de: new Date().toLocaleString('de-DE', { timeZone: 'Europe/Berlin' }),\n    maengel,\n    verwertbar: maengel.length === 0\n  }\n}];"
+      },
+      "id": "pruefe-anfrage",
+      "name": "Anfrage pruefen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [600, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {"caseSensitive": true, "version": 2},
+          "conditions": [
+            {"id": "ok", "leftValue": "={{ $json.verwertbar }}", "rightValue": true, "operator": {"type": "boolean", "operation": "true", "singleValue": true}}
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-verwertbar",
+      "name": "Frage verwertbar?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [820, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: false, antwort: $json.maengel.join(' '), ki_hinweis: 'Sie schreiben mit einem KI-Assistenten.', uebergabe: false, session_id: $json.session_id }) }}",
+        "options": {"responseCode": 400}
+      },
+      "id": "respond-fehler",
+      "name": "Rueckfrage an den Chat",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1040, 580]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "HIER_WISSENSBASIS_URL",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ frage: $json.frage, top_k: 5, mindest_score: 0.5, sprache: 'de' }) }}",
+        "options": {"response": {"response": {"neverError": true}}, "timeout": 15000}
+      },
+      "id": "http-wissensbasis",
+      "name": "Wissensbasis durchsuchen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1040, 220]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Die Suchtreffer werden hier in einen nummerierten Kontext gegossen, damit der\n// Agent im Text auf [1], [2] verweisen kann - nur so laesst sich die Antwort\n// spaeter gegen die Quelle pruefen.\n// Erwartetes Format der Such-API (bei abweichender API hier anpassen):\n//   { treffer: [ { titel, text, quelle, score } ] }\nconst anfrage = $('Anfrage pruefen').first().json;\nconst antwort = $input.first().json;\nconst roh = antwort.treffer ?? antwort.results ?? antwort.matches ?? [];\n\nconst treffer = (Array.isArray(roh) ? roh : []).map((t, i) => ({\n  nummer: i + 1,\n  titel: t.titel ?? t.title ?? ('Dokument ' + (i + 1)),\n  quelle: t.quelle ?? t.url ?? t.source ?? '',\n  score: Number(t.score ?? t.relevanz ?? 0),\n  // Lange Dokumente kappen: der Agent bekommt sonst mehr Kontext, als er\n  // sauber verarbeiten kann, und die Antwortzeit im Chat wird spuerbar.\n  text: String(t.text ?? t.content ?? t.inhalt ?? '').slice(0, 1500)\n}));\n\nconst kontext = treffer.length\n  ? treffer.map(t => `[${t.nummer}] ${t.titel} (Relevanz ${t.score.toFixed(2)})\\nQuelle: ${t.quelle}\\n${t.text}`).join('\\n\\n')\n  : '(keine passenden Eintraege in der Wissensbasis gefunden)';\n\nreturn [{\n  json: {\n    ...anfrage,\n    trefferzahl: treffer.length,\n    bester_score: treffer.length ? Math.max(...treffer.map(t => t.score)) : 0,\n    treffer,\n    kontext\n  }\n}];"
+      },
+      "id": "treffer-aufbereiten",
+      "name": "Treffer aufbereiten",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1260, 220]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Frage des Kunden:\n{{ $json.frage }}\n\nAusschnitte aus der Wissensbasis:\n{{ $json.kontext }}",
+        "options": {
+          "systemMessage": "Du bist der KI-Assistent im Kundenservice eines deutschen Unternehmens. Du gibst dich immer als KI zu erkennen, wenn du danach gefragt wirst.\n\nAntworte AUSSCHLIESSLICH mit einem JSON-Objekt, ohne Text davor oder danach. Felder: antwort (string, hoefliche Sie-Ansprache, 2-6 Saetze), quellen (Array der Nummern der verwendeten Ausschnitte, z. B. [1,3]), konfidenz (Zahl zwischen 0 und 1), begruendung (ein Satz, warum die Konfidenz so ausfaellt), rueckfrage (string oder null: was du wissen muesstest, falls die Angaben nicht reichen).\n\nHarte Regeln:\n1. Verwende ausschliesslich Informationen aus den gelieferten Ausschnitten. Nichts ergaenzen, nichts aus allgemeinem Wissen hinzufuegen.\n2. Wenn die Ausschnitte die Frage nicht abdecken, setze konfidenz auf einen Wert unter 0.5 und schreibe in antwort, dass du das nicht sicher beantworten kannst. Rate nicht.\n3. Nenne keine Preise, Liefertermine, Rechtsauskuenfte oder Zusagen, die nicht woertlich in den Ausschnitten stehen.\n4. Gib nur Quellennummern an, die du tatsaechlich verwendet hast.\n5. Schaetze die Konfidenz ehrlich. Eine ehrliche 0.4 ist wertvoller als eine erfundene 0.9."
+        }
+      },
+      "id": "ki-agent",
+      "name": "KI-Agent beantwortet Frage",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [1480, 220]
+    },
+    {
+      "parameters": {
+        "model": {"__rl": true, "value": "gpt-4.1-mini", "mode": "list"},
+        "options": {"temperature": 0}
+      },
+      "id": "lm-modell",
+      "name": "Sprachmodell",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [1480, 440]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Hier entscheidet sich, ob der Bot antwortet oder abgibt. Drei Gruende fuehren\n// zur Uebergabe an einen Menschen - alle drei sind in der Praxis die Faelle, in\n// denen ein Chatbot sonst selbstbewusst Unsinn erzaehlt:\n//   1. Die Wissensbasis hatte keine Treffer.\n//   2. Das Modell gibt selbst eine niedrige Konfidenz an.\n//   3. Die Antwort nennt keine Quelle - dann steht sie auf keiner Grundlage.\n// Zusaetzlich faengt der try/catch den Fall ab, dass der Agent kein sauberes\n// JSON liefert: auch das ist ein Uebergabefall und kein Grund zum Raten.\nconst MINDESTKONFIDENZ = 0.75;\nconst basis = $('Treffer aufbereiten').first().json;\nconst roh = $input.first().json;\n\nlet a = {};\nlet parsefehler = null;\ntry {\n  a = typeof roh.output === 'string' ? JSON.parse(roh.output) : (roh.output ?? roh);\n} catch (e) {\n  parsefehler = 'Antwort des Modells war kein gueltiges JSON';\n}\n\nconst konfidenz = Number(a.konfidenz ?? 0);\nconst genutzteQuellen = Array.isArray(a.quellen) ? a.quellen : [];\n// Nur Quellennummern zulassen, die es wirklich gab - erfundene Fussnoten sind\n// sonst nicht von echten zu unterscheiden.\nconst belege = basis.treffer.filter(t => genutzteQuellen.includes(t.nummer));\n\nconst gruende = [];\nif (parsefehler) gruende.push(parsefehler);\nif (basis.trefferzahl === 0) gruende.push('Kein passender Eintrag in der Wissensbasis');\nif (konfidenz < MINDESTKONFIDENZ) gruende.push(`Konfidenz ${konfidenz.toFixed(2)} unter Schwelle ${MINDESTKONFIDENZ}`);\nif (belege.length === 0) gruende.push('Antwort nennt keine belegbare Quelle');\n\nreturn [{\n  json: {\n    session_id: basis.session_id,\n    kanal: basis.kanal,\n    kunde_id: basis.kunde_id,\n    frage: basis.frage,\n    eingang_de: basis.eingang_de,\n    antwort_ki: String(a.antwort ?? '').trim(),\n    rueckfrage: a.rueckfrage ?? null,\n    konfidenz,\n    begruendung: a.begruendung ?? '',\n    belege,\n    quellen_text: belege.map(b => `${b.titel}${b.quelle ? ' (' + b.quelle + ')' : ''}`).join(' | '),\n    trefferzahl: basis.trefferzahl,\n    uebergabe_gruende: gruende,\n    belastbar: gruende.length === 0\n  }\n}];"
+      },
+      "id": "pruefe-konfidenz",
+      "name": "Konfidenz und Quellen pruefen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1700, 220]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {"caseSensitive": true, "version": 2},
+          "conditions": [
+            {"id": "belastbar", "leftValue": "={{ $json.belastbar }}", "rightValue": true, "operator": {"type": "boolean", "operation": "true", "singleValue": true}}
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-belastbar",
+      "name": "Antwort belastbar?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1920, 220]
+    },
+    {
+      "parameters": {
+        "assignments": {"assignments": [
+          {"id": "antwort", "name": "antwort", "value": "={{ $json.antwort_ki }}", "type": "string"},
+          {"id": "quellen", "name": "quellen", "value": "={{ $json.quellen_text }}", "type": "string"},
+          {"id": "hinweis", "name": "ki_hinweis", "value": "Diese Antwort stammt von einem KI-Assistenten. Auf Wunsch verbinden wir Sie mit einem Mitarbeiter.", "type": "string"},
+          {"id": "uebergabe", "name": "uebergabe", "value": "false", "type": "boolean"},
+          {"id": "status", "name": "status", "value": "beantwortet", "type": "string"}
+        ]},
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "set-antwort",
+      "name": "Antwort mit Quellen aufbereiten",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [2140, 100]
+    },
+    {
+      "parameters": {
+        "assignments": {"assignments": [
+          {"id": "antwort", "name": "antwort", "value": "=Das kann ich Ihnen nicht sicher beantworten, deshalb gebe ich Ihre Frage an einen Kollegen weiter. Sie erhalten heute noch eine Rueckmeldung{{ $json.rueckfrage ? '. Hilfreich waere vorab: ' + $json.rueckfrage : '.' }}", "type": "string"},
+          {"id": "quellen", "name": "quellen", "value": "keine belastbare Quelle gefunden", "type": "string"},
+          {"id": "hinweis", "name": "ki_hinweis", "value": "Diese Antwort stammt von einem KI-Assistenten. Ihre Frage wurde an einen Mitarbeiter uebergeben.", "type": "string"},
+          {"id": "uebergabe", "name": "uebergabe", "value": "true", "type": "boolean"},
+          {"id": "status", "name": "status", "value": "an Mitarbeiter uebergeben", "type": "string"}
+        ]},
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "set-uebergabe",
+      "name": "An Mitarbeiter uebergeben",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [2140, 380]
+    },
+    {
+      "parameters": {
+        "fromEmail": "HIER_ABSENDER_EINTRAGEN",
+        "toEmail": "service@HIER_DOMAIN_EINTRAGEN",
+        "subject": "=Chat-Uebergabe: unbeantwortete Frage (Session {{ $json.session_id }})",
+        "emailFormat": "text",
+        "text": "=Der FAQ-Chatbot konnte eine Frage nicht belastbar beantworten und hat uebergeben.\n\nZeitpunkt: {{ $json.eingang_de }}\nKanal: {{ $json.kanal }}\nSession: {{ $json.session_id }}\nKunde: {{ $json.kunde_id || 'nicht angemeldet' }}\n\nFrage:\n{{ $json.frage }}\n\nGruende fuer die Uebergabe:\n- {{ $json.uebergabe_gruende.join('\\n- ') }}\n\nEntwurf der KI (NICHT an den Kunden gegangen, nur als Anhaltspunkt):\n{{ $json.antwort_ki || 'keiner' }}\nSelbsteinschaetzung: Konfidenz {{ $json.konfidenz }} - {{ $json.begruendung }}\n\nHinweis: Haeufen sich solche Uebergaben zum selben Thema, fehlt der Wissensbasis ein Eintrag.",
+        "options": {}
+      },
+      "id": "mail-mitarbeiter",
+      "name": "Mitarbeiter benachrichtigen",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [2360, 500]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {"__rl": true, "value": "HIER_SHEET_ID_EINTRAGEN", "mode": "id"},
+        "sheetName": {"__rl": true, "value": "Chat-Protokoll", "mode": "name"},
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Zeitpunkt": "={{ $json.eingang_de }}",
+            "Session": "={{ $json.session_id }}",
+            "Kanal": "={{ $json.kanal }}",
+            "Frage": "={{ $json.frage }}",
+            "Antwort": "={{ $json.antwort }}",
+            "Konfidenz": "={{ $json.konfidenz }}",
+            "Quellen": "={{ $json.quellen }}",
+            "Uebergabe": "={{ $json.uebergabe }}",
+            "Status": "={{ $json.status }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "sheets-protokoll",
+      "name": "Konversation protokollieren",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [2360, 220]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: true, antwort: $json.antwort, quellen: $json.quellen, konfidenz: $json.konfidenz, uebergabe: $json.uebergabe, ki_hinweis: $json.ki_hinweis, session_id: $json.session_id }) }}",
+        "options": {}
+      },
+      "id": "respond-antwort",
+      "name": "Antwort zurueckgeben",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [2580, 220]
+    }
+  ],
+  "connections": {
+    "Chat-Anfrage empfangen": {"main": [[{"node": "Anfrage pruefen", "type": "main", "index": 0}]]},
+    "Anfrage pruefen": {"main": [[{"node": "Frage verwertbar?", "type": "main", "index": 0}]]},
+    "Frage verwertbar?": {"main": [[{"node": "Wissensbasis durchsuchen", "type": "main", "index": 0}], [{"node": "Rueckfrage an den Chat", "type": "main", "index": 0}]]},
+    "Wissensbasis durchsuchen": {"main": [[{"node": "Treffer aufbereiten", "type": "main", "index": 0}]]},
+    "Treffer aufbereiten": {"main": [[{"node": "KI-Agent beantwortet Frage", "type": "main", "index": 0}]]},
+    "Sprachmodell": {"ai_languageModel": [[{"node": "KI-Agent beantwortet Frage", "type": "ai_languageModel", "index": 0}]]},
+    "KI-Agent beantwortet Frage": {"main": [[{"node": "Konfidenz und Quellen pruefen", "type": "main", "index": 0}]]},
+    "Konfidenz und Quellen pruefen": {"main": [[{"node": "Antwort belastbar?", "type": "main", "index": 0}]]},
+    "Antwort belastbar?": {"main": [[{"node": "Antwort mit Quellen aufbereiten", "type": "main", "index": 0}], [{"node": "An Mitarbeiter uebergeben", "type": "main", "index": 0}]]},
+    "Antwort mit Quellen aufbereiten": {"main": [[{"node": "Konversation protokollieren", "type": "main", "index": 0}]]},
+    "An Mitarbeiter uebergeben": {"main": [[{"node": "Mitarbeiter benachrichtigen", "type": "main", "index": 0}, {"node": "Konversation protokollieren", "type": "main", "index": 0}]]},
+    "Konversation protokollieren": {"main": [[{"node": "Antwort zurueckgeben", "type": "main", "index": 0}]]}
+  },
+  "settings": {"executionOrder": "v1"},
+  "pinData": {}
+}

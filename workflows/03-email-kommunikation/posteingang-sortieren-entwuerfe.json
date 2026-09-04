@@ -1,0 +1,262 @@
+{
+  "name": "Posteingang sortieren und Antwortentwuerfe vorbereiten",
+  "meta": {
+    "beschreibung": "Liest neue Mails per IMAP, faengt Bounces und Abwesenheitsnotizen in einem eigenen Zweig ab und laesst die KI jede echte Mail in Anfrage, Bestellung, Reklamation, Rechnung, Newsletter oder Spam einsortieren - inklusive Konfidenzwert. Sichere Faelle werden an das zustaendige Postfach weitergeleitet, unsichere landen zur Sichtung im Buero-Postfach; fuer Anfragen entsteht ein Antwortentwurf, der ausdruecklich NICHT automatisch versendet wird, sondern zur Freigabe vorgelegt wird. DSGVO-Hinweis: E-Mail-Inhalte sind in aller Regel personenbezogen - AV-Vertrag mit dem KI-Anbieter schliessen oder ein lokales Modell (Ollama) einsetzen. Da jede Antwort vor dem Versand von einem Menschen freigegeben wird, bleibt der Kundenkontakt eine menschliche Entscheidung.",
+    "kategorie": "E-Mail & Kommunikation",
+    "schwierigkeit": "fortgeschritten",
+    "benoetigt": ["IMAP-Postfach", "SMTP-Versand", "OpenAI-API (oder Ollama)", "Mail-API fuer Entwuerfe (z. B. Microsoft Graph, Gmail)"],
+    "quelle": "https://die-ki-agentur.de/n8n-agentur/"
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Posteingang sortieren, Entwuerfe vorbereiten\n\n**Ablauf:** IMAP alle 5 Min → Bounce-/Autoreply-Filter (eigener Zweig!) → KI klassifiziert mit Konfidenz → Weiche: unsicher / Spam / Anfrage / Weiterleiten → fuer Anfragen Antwortentwurf → Entwurf ablegen → Freigabe anfordern.\n\n**Es wird nichts automatisch an Kunden gesendet.** Der Entwurf geht in das Postfach, der Mensch gibt frei.\n\n**Vor dem Start:**\n1. IMAP- und SMTP-Zugangsdaten hinterlegen\n2. In `Klassifikation pruefen` die Ziel-Postfaecher eintragen (HIER_DOMAIN_EINTRAGEN)\n3. In `Entwurf im Postfach ablegen` die URL der Mail-API setzen (HIER_DRAFT_API_URL)\n4. Freigabe-Postfach in `Freigabe anfordern` eintragen\n5. Bei personenbezogenen Inhalten: AV-Vertrag mit dem KI-Anbieter oder lokales Modell\n\n**Warum der Bounce-Zweig:** Ohne ihn beantwortet der Workflow Abwesenheitsnotizen - und zwei Systeme schreiben sich gegenseitig endlos.\n\n**Betreuung:** https://die-ki-agentur.de/n8n-agentur/",
+        "height": 620,
+        "width": 480
+      },
+      "id": "note-doku",
+      "name": "Kurzanleitung",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-160, -60]
+    },
+    {
+      "parameters": {
+        "pollTimes": {"item": [{"mode": "everyX", "value": 5, "unit": "minutes"}]},
+        "format": "resolved",
+        "options": {"customEmailConfig": "[\"UNSEEN\"]", "forceReconnect": 60}
+      },
+      "id": "trigger-imap",
+      "name": "Neue Mails abholen",
+      "type": "n8n-nodes-base.emailReadImap",
+      "typeVersion": 2,
+      "position": [380, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Automatische Mails (Bounces, Abwesenheitsnotizen, Systemmeldungen) muessen VOR\n// der Klassifikation ausgesiebt werden. Sonst schreibt der Workflow einen\n// Antwortentwurf auf eine Auto-Antwort - im Live-Betrieb der Beginn einer\n// Mailschleife, die beide Postfaecher zumuellt.\n// Erkennung ueber Header (verlaesslich) UND Betreff/Absender (faengt Server,\n// die die Header nicht setzen).\nconst betreffMuster = /(undeliverable|unzustellbar|delivery status|mail delivery (failed|subsystem)|returned mail|abwesenheit|out of office|automatische antwort|auto-?reply|urlaubsmeldung|lesebestaetigung|read receipt)/i;\nconst absenderMuster = /(mailer-daemon|postmaster|no-?reply|do-?not-?reply|bounce|notification)@/i;\n\nconst raus = [];\nfor (const eintrag of $input.all()) {\n  const m = eintrag.json;\n\n  // Header-Schreibweise unterscheidet sich je nach Mailserver - alles klein machen.\n  const header = {};\n  for (const [k, v] of Object.entries(m.headers || {})) header[String(k).toLowerCase()] = String(v);\n\n  // Der IMAP-Node liefert Absender je nach Server als String oder als Objekt.\n  const absender = typeof m.from === 'string'\n    ? m.from\n    : (m.from?.text ?? m.from?.value?.[0]?.address ?? '');\n\n  const gruende = [];\n  if (header['auto-submitted'] && header['auto-submitted'].toLowerCase() !== 'no') gruende.push('Header auto-submitted: ' + header['auto-submitted']);\n  if (header['x-autoreply'] || header['x-autorespond'] || header['x-auto-response-suppress']) gruende.push('Autoreply-Header gesetzt');\n  if (/(bulk|auto_reply|list|junk)/i.test(header['precedence'] || '')) gruende.push('Precedence: ' + header['precedence']);\n  if ((header['return-path'] || '').trim() === '<>') gruende.push('Leerer Return-Path (Bounce)');\n  if (header['x-failed-recipients']) gruende.push('Unzustellbar an: ' + header['x-failed-recipients']);\n  if (betreffMuster.test(m.subject || '')) gruende.push('Betreff deutet auf Systemmeldung');\n  if (absenderMuster.test(absender)) gruende.push('Absender ist eine Systemadresse');\n\n  // Nur die benoetigten Felder weiterreichen - der HTML-Body blaeht jede\n  // Ausfuehrung sonst unnoetig auf und geht ungefiltert an die KI.\n  const text = String(m.text ?? m.textPlain ?? m.textAsHtml ?? '').replace(/\\s+\\n/g, '\\n').trim();\n  raus.push({\n    json: {\n      betreff: m.subject ?? '(ohne Betreff)',\n      absender,\n      absender_name: (typeof m.from === 'object' ? m.from?.value?.[0]?.name : '') || '',\n      empfangen_am: m.date ?? new Date().toISOString(),\n      message_id: header['message-id'] ?? '',\n      text_kurz: text.slice(0, 4000),\n      hat_anhang: Array.isArray(m.attachments) ? m.attachments.length > 0 : false,\n      ist_automatik: gruende.length > 0,\n      automatik_gruende: gruende\n    }\n  });\n}\nreturn raus;"
+      },
+      "id": "bounce-filter",
+      "name": "Bounce und Autoreply erkennen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [600, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {"caseSensitive": true, "version": 2},
+          "conditions": [
+            {"id": "automatik", "leftValue": "={{ $json.ist_automatik }}", "rightValue": true, "operator": {"type": "boolean", "operation": "true", "singleValue": true}}
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-automatik",
+      "name": "Automatische Mail?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [820, 300]
+    },
+    {
+      "parameters": {
+        "assignments": {"assignments": [
+          {"id": "ordner", "name": "zielordner", "value": "System-Meldungen", "type": "string"},
+          {"id": "grund", "name": "abbruchgrund", "value": "={{ $json.automatik_gruende.join('; ') }}", "type": "string"},
+          {"id": "hinweis", "name": "hinweis", "value": "Automatische Mail - keine KI-Klassifikation, keine Antwort. Verhindert Mailschleifen.", "type": "string"}
+        ]},
+        "options": {}
+      },
+      "id": "set-automatik",
+      "name": "Automatik-Mail nur ablegen",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1040, 540]
+    },
+    {
+      "parameters": {
+        "modelId": {"__rl": true, "value": "gpt-4.1-mini", "mode": "list"},
+        "messages": {"values": [
+          {"role": "system", "content": "Du sortierst den Posteingang eines deutschen Unternehmens. Antworte AUSSCHLIESSLICH mit einem JSON-Objekt, keine Erklaerung davor oder danach. Felder: kategorie (genau einer der Werte: Anfrage, Bestellung, Reklamation, Rechnung, Newsletter, Spam), konfidenz (Zahl zwischen 0 und 1), begruendung (ein kurzer deutscher Satz), dringlichkeit (hoch, mittel, niedrig), kundenname (string oder null), bestellnummer (string oder null). Regeln: 'Anfrage' nur bei echtem Informations- oder Angebotsbedarf. 'Reklamation' bei Beschwerde, Mangel, Ruecksendung. 'Rechnung' bei Eingangsrechnungen, Mahnungen, Zahlungsavisen. 'Newsletter' bei Werbung mit Abmeldelink von bekannten Absendern. 'Spam' nur bei eindeutigem Betrug oder Massenmail ohne Bezug. Wenn du dir nicht sicher bist, setze die Konfidenz ehrlich niedrig, statt zu raten."},
+          {"role": "user", "content": "=Betreff: {{ $json.betreff }}\nAbsender: {{ $json.absender }}\nAnhang vorhanden: {{ $json.hat_anhang }}\n\nText:\n{{ $json.text_kurz }}"}
+        ]},
+        "jsonOutput": true,
+        "options": {"temperature": 0}
+      },
+      "id": "ki-klassifikation",
+      "name": "Mail klassifizieren",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [1040, 220]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Das Regelwerk fuer Ordner und Postfach steht bewusst hier und nicht im Prompt:\n// Adressen aendern sich haeufiger als Modelle, und eine Tabelle laesst sich ohne\n// KI-Kenntnisse pflegen. Ausserdem kann die KI so keine Adresse erfinden.\nconst ziele = {\n  Anfrage:     {ordner: 'Anfragen',          postfach: 'vertrieb@HIER_DOMAIN_EINTRAGEN'},\n  Bestellung:  {ordner: 'Bestellungen',      postfach: 'auftrag@HIER_DOMAIN_EINTRAGEN'},\n  Reklamation: {ordner: 'Reklamationen',     postfach: 'service@HIER_DOMAIN_EINTRAGEN'},\n  Rechnung:    {ordner: 'Rechnungen',        postfach: 'buchhaltung@HIER_DOMAIN_EINTRAGEN'},\n  Newsletter:  {ordner: 'Newsletter',        postfach: 'marketing@HIER_DOMAIN_EINTRAGEN'},\n  Spam:        {ordner: 'Spam-Quarantaene',  postfach: null}\n};\nconst SICHTUNG = {ordner: 'Zur Sichtung', postfach: 'buero@HIER_DOMAIN_EINTRAGEN'};\n\n// Unterhalb dieser Konfidenz wird nicht einsortiert, sondern ein Mensch gefragt.\n// 0.7 ist ein bewusst vorsichtiger Startwert: lieber ein paar Mails zu viel\n// sichten als eine Reklamation im Newsletter-Ordner beerdigen.\nconst MINDESTKONFIDENZ = 0.7;\n\nconst raus = [];\nfor (const eintrag of $input.all()) {\n  // Der OpenAI-Node kapselt die JSON-Antwort je nach Version unterschiedlich.\n  const k = eintrag.json.message?.content ?? eintrag.json;\n  const mail = $('Bounce und Autoreply erkennen').item.json;\n\n  const kategorie = ziele[k.kategorie] ? k.kategorie : 'Unklar';\n  const konfidenz = Number(k.konfidenz ?? 0);\n  const ziel = ziele[kategorie] ?? SICHTUNG;\n  const sicher = konfidenz >= MINDESTKONFIDENZ && kategorie !== 'Unklar';\n\n  raus.push({\n    json: {\n      betreff: mail.betreff,\n      absender: mail.absender,\n      absender_name: mail.absender_name,\n      empfangen_am: mail.empfangen_am,\n      text_kurz: mail.text_kurz,\n      kategorie,\n      konfidenz,\n      begruendung: k.begruendung ?? '',\n      dringlichkeit: k.dringlichkeit ?? 'mittel',\n      kundenname: k.kundenname ?? null,\n      bestellnummer: k.bestellnummer ?? null,\n      // Bei unsicherer Einschaetzung wird bewusst auf Sichtung umgebogen.\n      zielordner: sicher ? ziel.ordner : SICHTUNG.ordner,\n      zielpostfach: sicher ? (ziel.postfach ?? SICHTUNG.postfach) : SICHTUNG.postfach,\n      sicher_genug: sicher\n    }\n  });\n}\nreturn raus;"
+      },
+      "id": "pruefe-klassifikation",
+      "name": "Klassifikation pruefen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1260, 220]
+    },
+    {
+      "parameters": {
+        "rules": {"values": [
+          {
+            "conditions": {
+              "options": {"caseSensitive": true, "version": 2},
+              "conditions": [{"id": "unsicher", "leftValue": "={{ $json.sicher_genug }}", "rightValue": false, "operator": {"type": "boolean", "operation": "false", "singleValue": true}}],
+              "combinator": "and"
+            },
+            "renameOutput": true,
+            "outputKey": "Unsicher"
+          },
+          {
+            "conditions": {
+              "options": {"caseSensitive": true, "version": 2},
+              "conditions": [{"id": "spam", "leftValue": "={{ $json.kategorie }}", "rightValue": "Spam", "operator": {"type": "string", "operation": "equals"}}],
+              "combinator": "and"
+            },
+            "renameOutput": true,
+            "outputKey": "Spam"
+          },
+          {
+            "conditions": {
+              "options": {"caseSensitive": true, "version": 2},
+              "conditions": [{"id": "anfrage", "leftValue": "={{ $json.kategorie }}", "rightValue": "Anfrage", "operator": {"type": "string", "operation": "equals"}}],
+              "combinator": "and"
+            },
+            "renameOutput": true,
+            "outputKey": "Anfrage"
+          }
+        ]},
+        "options": {"fallbackOutput": "extra", "renameFallbackOutput": "Weiterleiten"}
+      },
+      "id": "switch-routing",
+      "name": "Weiterleitung entscheiden",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [1480, 220]
+    },
+    {
+      "parameters": {
+        "assignments": {"assignments": [
+          {"id": "hinweis", "name": "sichtungsgrund", "value": "=KI unsicher (Konfidenz {{ $json.konfidenz }}) - Vorschlag war '{{ $json.kategorie }}': {{ $json.begruendung }}", "type": "string"},
+          {"id": "aktion", "name": "naechster_schritt", "value": "Mail von Hand einsortieren; bei haeufigen Faellen den Klassifikations-Prompt ergaenzen", "type": "string"}
+        ]},
+        "options": {}
+      },
+      "id": "set-sichtung",
+      "name": "Zur manuellen Sichtung",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1700, 40]
+    },
+    {
+      "parameters": {
+        "assignments": {"assignments": [
+          {"id": "ordner", "name": "zielordner", "value": "Spam-Quarantaene", "type": "string"},
+          {"id": "hinweis", "name": "hinweis", "value": "Nicht geloescht, nur in Quarantaene - Fehlklassifikationen bleiben so nachvollziehbar und wiederherstellbar.", "type": "string"},
+          {"id": "frist", "name": "aufbewahrung_tage", "value": "30", "type": "string"}
+        ]},
+        "options": {}
+      },
+      "id": "set-spam",
+      "name": "Spam-Quarantaene",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1700, 640]
+    },
+    {
+      "parameters": {
+        "modelId": {"__rl": true, "value": "gpt-4.1-mini", "mode": "list"},
+        "messages": {"values": [
+          {"role": "system", "content": "Du formulierst Antwortentwuerfe fuer den Kundenservice eines deutschen Unternehmens. Der Entwurf wird von einem Mitarbeiter geprueft und erst danach versendet - er wird NIE automatisch verschickt. Antworte AUSSCHLIESSLICH mit einem JSON-Objekt. Felder: betreff (string), entwurf (string, hoefliche Sie-Ansprache, 80-200 Woerter, mit Anrede und Gruss), offene_punkte (Array von Strings: Angaben, die der Mitarbeiter ergaenzen oder pruefen muss), keine_zusagen (boolean: true, wenn der Entwurf ohne Preis-, Termin- oder Rabattzusagen auskommt). Regeln: Nenne niemals konkrete Preise, Liefertermine, Rabatte oder Rechtsauskuenfte - schreibe stattdessen einen Platzhalter in eckigen Klammern und trage ihn in offene_punkte ein. Erfinde keine Produktdetails."},
+          {"role": "user", "content": "=Kunde: {{ $json.absender_name || $json.absender }}\nBetreff der Anfrage: {{ $json.betreff }}\nDringlichkeit: {{ $json.dringlichkeit }}\n\nAnfrage:\n{{ $json.text_kurz }}"}
+        ]},
+        "jsonOutput": true,
+        "options": {"temperature": 0.3}
+      },
+      "id": "ki-entwurf",
+      "name": "Antwortentwurf schreiben",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [1700, 260]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Letzte Kontrolle vor der Ablage. Zwei Dinge sollen hier haengen bleiben:\n// 1. Entwuerfe, in denen die KI trotz Anweisung Preise oder Termine zusagt.\n// 2. Zu kurze Antworten, die erkennbar an der Anfrage vorbeigehen.\n// Der Entwurf wird deshalb nicht verworfen, sondern markiert - der Mitarbeiter\n// sieht sofort, worauf er schauen muss.\nconst risikoMuster = /(\\d+[.,]?\\d*\\s?(euro|eur|€)|kostenlos|gratis|rabatt|garantiert|spaetestens|liefertermin|innerhalb von \\d+ (tagen|stunden))/i;\n\nconst raus = [];\nfor (const eintrag of $input.all()) {\n  const e = eintrag.json.message?.content ?? eintrag.json;\n  const mail = $('Klassifikation pruefen').item.json;\n  const text = String(e.entwurf ?? '');\n  const warnungen = [];\n\n  if (risikoMuster.test(text)) warnungen.push('Enthaelt moeglicherweise eine Preis- oder Terminzusage');\n  if (text.split(/\\s+/).length < 40) warnungen.push('Entwurf sehr kurz - vermutlich unvollstaendig');\n  if (e.keine_zusagen === false) warnungen.push('Modell meldet selbst eine Zusage im Text');\n  if (!Array.isArray(e.offene_punkte)) e.offene_punkte = [];\n\n  raus.push({\n    json: {\n      an: mail.absender,\n      kunde: mail.absender_name || mail.absender,\n      original_betreff: mail.betreff,\n      entwurf_betreff: e.betreff ?? ('AW: ' + mail.betreff),\n      entwurf_text: text + '\\n\\n---\\nEntwurf durch KI vorbereitet, vor dem Senden pruefen.',\n      offene_punkte: e.offene_punkte,\n      warnungen,\n      pruefung_noetig: warnungen.length > 0,\n      status: 'ENTWURF - nicht gesendet',\n      erstellt_am: new Date().toISOString()\n    }\n  });\n}\nreturn raus;"
+      },
+      "id": "pruefe-entwurf",
+      "name": "Entwurf gegenpruefen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1920, 260]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "HIER_DRAFT_API_URL",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ ordner: 'Entwuerfe', an: $json.an, betreff: $json.entwurf_betreff, text: $json.entwurf_text, bezug_betreff: $json.original_betreff, status: $json.status }) }}",
+        "options": {"response": {"response": {"neverError": true}}}
+      },
+      "id": "http-entwurf",
+      "name": "Entwurf im Postfach ablegen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2140, 260]
+    },
+    {
+      "parameters": {
+        "fromEmail": "HIER_ABSENDER_EINTRAGEN",
+        "toEmail": "vertrieb@HIER_DOMAIN_EINTRAGEN",
+        "subject": "=Freigabe noetig: Antwortentwurf zu \"{{ $('Entwurf gegenpruefen').item.json.original_betreff }}\"",
+        "emailFormat": "text",
+        "text": "=Fuer eine Kundenanfrage liegt ein Antwortentwurf im Ordner \"Entwuerfe\".\n\nKunde: {{ $('Entwurf gegenpruefen').item.json.kunde }}\nAdresse: {{ $('Entwurf gegenpruefen').item.json.an }}\nBetreff: {{ $('Entwurf gegenpruefen').item.json.entwurf_betreff }}\n\nOffene Punkte:\n{{ ($('Entwurf gegenpruefen').item.json.offene_punkte || []).join('\\n- ') }}\n\nWarnungen:\n{{ ($('Entwurf gegenpruefen').item.json.warnungen || ['keine']).join('\\n- ') }}\n\nEntwurf:\n{{ $('Entwurf gegenpruefen').item.json.entwurf_text }}\n\nDer Entwurf wurde NICHT versendet. Bitte pruefen, ergaenzen und von Hand abschicken.",
+        "options": {}
+      },
+      "id": "mail-freigabe",
+      "name": "Freigabe anfordern",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [2360, 260]
+    },
+    {
+      "parameters": {
+        "fromEmail": "HIER_ABSENDER_EINTRAGEN",
+        "toEmail": "={{ $json.zielpostfach }}",
+        "subject": "=[{{ $json.kategorie }}] {{ $json.betreff }}",
+        "emailFormat": "text",
+        "text": "=Automatisch einsortiert in Ordner: {{ $json.zielordner }}\nKategorie: {{ $json.kategorie }} (Konfidenz {{ $json.konfidenz }})\nDringlichkeit: {{ $json.dringlichkeit }}\nBegruendung: {{ $json.begruendung }}\n\nVon: {{ $json.absender_name }} <{{ $json.absender }}>\nEingegangen: {{ $json.empfangen_am }}\nBestellnummer laut Mail: {{ $json.bestellnummer || 'keine erkannt' }}\n\n--- Originaltext ---\n{{ $json.text_kurz }}",
+        "options": {}
+      },
+      "id": "mail-weiterleiten",
+      "name": "An zustaendiges Postfach weiterleiten",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [1980, 40]
+    }
+  ],
+  "connections": {
+    "Neue Mails abholen": {"main": [[{"node": "Bounce und Autoreply erkennen", "type": "main", "index": 0}]]},
+    "Bounce und Autoreply erkennen": {"main": [[{"node": "Automatische Mail?", "type": "main", "index": 0}]]},
+    "Automatische Mail?": {"main": [[{"node": "Automatik-Mail nur ablegen", "type": "main", "index": 0}], [{"node": "Mail klassifizieren", "type": "main", "index": 0}]]},
+    "Mail klassifizieren": {"main": [[{"node": "Klassifikation pruefen", "type": "main", "index": 0}]]},
+    "Klassifikation pruefen": {"main": [[{"node": "Weiterleitung entscheiden", "type": "main", "index": 0}]]},
+    "Weiterleitung entscheiden": {"main": [
+      [{"node": "Zur manuellen Sichtung", "type": "main", "index": 0}],
+      [{"node": "Spam-Quarantaene", "type": "main", "index": 0}],
+      [{"node": "Antwortentwurf schreiben", "type": "main", "index": 0}],
+      [{"node": "An zustaendiges Postfach weiterleiten", "type": "main", "index": 0}]
+    ]},
+    "Zur manuellen Sichtung": {"main": [[{"node": "An zustaendiges Postfach weiterleiten", "type": "main", "index": 0}]]},
+    "Antwortentwurf schreiben": {"main": [[{"node": "Entwurf gegenpruefen", "type": "main", "index": 0}]]},
+    "Entwurf gegenpruefen": {"main": [[{"node": "Entwurf im Postfach ablegen", "type": "main", "index": 0}]]},
+    "Entwurf im Postfach ablegen": {"main": [[{"node": "Freigabe anfordern", "type": "main", "index": 0}]]}
+  },
+  "settings": {"executionOrder": "v1"},
+  "pinData": {}
+}

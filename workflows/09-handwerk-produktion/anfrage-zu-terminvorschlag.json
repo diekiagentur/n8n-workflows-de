@@ -1,0 +1,214 @@
+{
+  "name": "Kundenanfrage automatisch zu Terminvorschlaegen",
+  "meta": {
+    "beschreibung": "Nimmt Kundenanfragen ueber ein Web-Formular an, laesst die KI Gewerk, Taetigkeit, Ort und Dringlichkeit herauslesen, gleicht die Termine gegen den Betriebskalender ab und schickt dem Kunden zwei bis drei konkrete Terminvorschlaege per E-Mail. Erkannte Notfaelle (Wasserschaden, Heizungsausfall, Gasgeruch, Kurzschluss) laufen nicht in die Terminlogik, sondern loesen sofort eine Telefon-Benachrichtigung an die Bereitschaft aus. DSGVO-Hinweis: Die Anfrage enthaelt Name, Adresse und Telefonnummer des Kunden — mit dem KI-Anbieter einen AV-Vertrag schliessen oder ein lokales Modell (Ollama) nutzen. Die automatisch erzeugte E-Mail ist nach Art. 50 EU AI Act als KI-gestuetzt gekennzeichnet.",
+    "kategorie": "Handwerk & Produktion",
+    "schwierigkeit": "fortgeschritten",
+    "benoetigt": ["n8n-Formular (oder IMAP-Postfach)", "OpenAI-API (oder Ollama)", "Google Calendar API", "SMTP-Postausgang", "Telefonie-/SMS-API fuer die Bereitschaft"],
+    "quelle": "https://die-ki-agentur.de/n8n-agentur/"
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Anfrage rein, Terminvorschlag raus\n\n**Ablauf:** Formular → KI liest Gewerk, Ort und Dringlichkeit → Weiche Notfall/Regeltermin.\nRegeltermin: freie Zeiten aus dem Kalender holen → 2–3 Vorschlaege bauen → Mail an den Kunden.\nNotfall: kein Terminvorschlag, sondern sofort Anruf/SMS an die Bereitschaft + kurze Rueckmeldung an den Kunden.\n\n**Vor dem Start:**\n1. Formularpfad `kundenanfrage` freigeben und auf der Website verlinken (alternativ den Trigger gegen `emailReadImap` tauschen)\n2. Google-Calendar-Zugang hinterlegen und `HIER_KALENDER_ID_EINTRAGEN` durch die Kalender-ID des Betriebs ersetzen\n3. Telefonie-/SMS-Anbieter eintragen: `HIER_TELEFON_API_URL` und `HIER_BEREITSCHAFT_NUMMER_EINTRAGEN`\n4. Absenderadresse in den beiden Mail-Nodes setzen, Dauer je Gewerk im Node „Terminvorschlaege berechnen“ an den Betrieb anpassen\n5. Bei personenbezogenen Daten: AV-Vertrag mit dem KI-Anbieter oder lokales Modell\n\n**Betreuung:** https://die-ki-agentur.de/n8n-agentur/",
+        "height": 520,
+        "width": 480
+      },
+      "id": "note-doku",
+      "name": "Kurzanleitung",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-180, 60]
+    },
+    {
+      "parameters": {
+        "path": "kundenanfrage",
+        "formTitle": "Anfrage an unseren Handwerksbetrieb",
+        "formDescription": "Beschreiben Sie Ihr Anliegen — wir melden uns mit konkreten Terminvorschlaegen zurueck. Bei akuten Notfaellen rufen Sie uns bitte zusaetzlich an.",
+        "formFields": {
+          "values": [
+            {"fieldLabel": "Name", "fieldType": "text", "requiredField": true},
+            {"fieldLabel": "E-Mail", "fieldType": "email", "requiredField": true},
+            {"fieldLabel": "Telefon", "fieldType": "text", "requiredField": true},
+            {"fieldLabel": "Strasse und Hausnummer", "fieldType": "text", "requiredField": true},
+            {"fieldLabel": "PLZ und Ort", "fieldType": "text", "requiredField": true},
+            {"fieldLabel": "Worum geht es?", "fieldType": "textarea", "requiredField": true},
+            {"fieldLabel": "Wunschzeitraum", "fieldType": "text", "requiredField": false}
+          ]
+        },
+        "options": {
+          "appendAttribution": false,
+          "respondWithOptions": {"values": {"formSubmittedText": "Danke — Ihre Anfrage ist eingegangen. Sie erhalten in Kuerze eine E-Mail mit Terminvorschlaegen."}}
+        }
+      },
+      "id": "trigger-formular",
+      "name": "Kundenanfrage empfangen",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
+      "position": [380, 320]
+    },
+    {
+      "parameters": {
+        "modelId": {"__rl": true, "value": "gpt-4.1-mini", "mode": "list"},
+        "messages": {
+          "values": [
+            {"role": "system", "content": "Du bist Disponent in einem deutschen Handwerksbetrieb und ordnest eingehende Kundenanfragen ein. Antworte AUSSCHLIESSLICH mit einem JSON-Objekt, keine Erklaerung, kein Markdown. Felder: gewerk (genau einer von: Heizung, Sanitaer, Elektro, Dach, Fenster, Maler, Sonstiges), taetigkeit (kurze Sachbezeichnung, max 60 Zeichen), dringlichkeit (genau einer von: notfall, dringend, normal), notfall_grund (string oder null), ort (string oder null), plz (string oder null), wunschzeitraum (string oder null), hersteller_geraet (string oder null), zusammenfassung (max 2 Saetze fuer den Monteur). Regeln: dringlichkeit = notfall nur bei akuter Gefahr oder Ausfall der Grundversorgung (Wasserschaden, Rohrbruch, Gasgeruch, Heizungsausfall in der Heizperiode, kein Warmwasser, Stromausfall, Kurzschluss, Brandgeruch). dringlichkeit = dringend bei Folgeschaeden innerhalb weniger Tage. Sonst normal. Unbekannte Werte: null. Nichts erfinden."},
+            {"role": "user", "content": "=Anliegen: {{ $json['Worum geht es?'] }}\nAdresse: {{ $json['Strasse und Hausnummer'] }}, {{ $json['PLZ und Ort'] }}\nWunschzeitraum: {{ $json['Wunschzeitraum'] || 'keine Angabe' }}"}
+          ]
+        },
+        "jsonOutput": true,
+        "options": {"temperature": 0}
+      },
+      "id": "ki-einordnen",
+      "name": "Anfrage per KI einordnen",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [600, 320]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Die KI-Einschaetzung wird hier normalisiert und gegengeprueft.\n// Warum ein zweiter, regelbasierter Notfall-Check: Ein Wasserschaden darf nicht\n// deshalb als Regeltermin durchrutschen, weil das Modell den Satz anders gewichtet\n// hat. Stichworte schlagen die KI — im Zweifel lieber ein Anruf zu viel.\nconst NOTFALL_STICHWORTE = [\n  'wasserschaden', 'rohrbruch', 'wasser laeuft', 'wasser läuft', 'ueberschwemm', 'überschwemm',\n  'gasgeruch', 'gas riecht', 'brandgeruch', 'es qualmt', 'kurzschluss', 'stromausfall',\n  'heizungsausfall', 'heizung ausgefallen', 'heizung faellt aus', 'heizung fällt aus',\n  'keine heizung', 'kein warmwasser', 'kein strom', 'notfall', 'dringend heute'\n];\nconst GEWERKE = ['Heizung', 'Sanitaer', 'Elektro', 'Dach', 'Fenster', 'Maler', 'Sonstiges'];\n\nconst formular = $('Kundenanfrage empfangen').first().json;\nconst freitext = String(formular['Worum geht es?'] || '').toLowerCase();\n\nconst raus = [];\nfor (const eintrag of $input.all()) {\n  const k = eintrag.json.message?.content ?? eintrag.json;\n\n  const stichwortTreffer = NOTFALL_STICHWORTE.filter((w) => freitext.includes(w));\n  const kiNotfall = String(k.dringlichkeit || '').toLowerCase() === 'notfall';\n  const istNotfall = kiNotfall || stichwortTreffer.length > 0;\n\n  // Gewerk auf die erlaubte Liste zwingen — sonst laufen Dauer-Zuordnung und\n  // spaetere Auswertungen ins Leere.\n  const gewerk = GEWERKE.includes(k.gewerk) ? k.gewerk : 'Sonstiges';\n\n  raus.push({\n    json: {\n      kunde_name: formular['Name'] || '',\n      kunde_mail: formular['E-Mail'] || '',\n      kunde_telefon: formular['Telefon'] || '',\n      adresse: `${formular['Strasse und Hausnummer'] || ''}, ${formular['PLZ und Ort'] || ''}`.trim(),\n      ort: k.ort || formular['PLZ und Ort'] || null,\n      plz: k.plz || null,\n      gewerk,\n      taetigkeit: k.taetigkeit || 'Nicht eingeordnet',\n      hersteller_geraet: k.hersteller_geraet || null,\n      zusammenfassung: k.zusammenfassung || freitext.slice(0, 200),\n      wunschzeitraum: k.wunschzeitraum || formular['Wunschzeitraum'] || null,\n      dringlichkeit: istNotfall ? 'notfall' : (k.dringlichkeit === 'dringend' ? 'dringend' : 'normal'),\n      ist_notfall: istNotfall,\n      notfall_grund: istNotfall ? (k.notfall_grund || stichwortTreffer.join(', ') || 'Stichwort im Anfragetext') : null,\n      notfall_quelle: istNotfall ? (kiNotfall && stichwortTreffer.length ? 'KI und Stichwort' : (kiNotfall ? 'KI' : 'Stichwort')) : null,\n      kontakt_vollstaendig: Boolean(formular['E-Mail'] && formular['Telefon']),\n      eingegangen_am: new Date().toLocaleString('de-DE', { timeZone: 'Europe/Berlin' }),\n      originaltext: formular['Worum geht es?'] || ''\n    }\n  });\n}\nreturn raus;"
+      },
+      "id": "einordnen",
+      "name": "Anfrage einordnen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [820, 320]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {"caseSensitive": true, "version": 2},
+          "conditions": [
+            {"id": "notfall", "leftValue": "={{ $json.ist_notfall }}", "rightValue": true, "operator": {"type": "boolean", "operation": "true", "singleValue": true}}
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "weiche-notfall",
+      "name": "Notfall?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1040, 320]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "HIER_TELEFON_API_URL",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ empfaenger: 'HIER_BEREITSCHAFT_NUMMER_EINTRAGEN', kanal: 'anruf_und_sms', prioritaet: 'hoch', text: 'NOTFALL ' + $json.gewerk + ': ' + $json.taetigkeit + '. Kunde ' + $json.kunde_name + ', Telefon ' + $json.kunde_telefon + ', Adresse ' + $json.adresse + '. Grund: ' + $json.notfall_grund + '. Eingegangen ' + $json.eingegangen_am }) }}",
+        "options": {"response": {"response": {"neverError": true}}}
+      },
+      "id": "bereitschaft-anrufen",
+      "name": "Bereitschaft telefonisch alarmieren",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1260, 140],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "fromEmail": "HIER_ABSENDERADRESSE_EINTRAGEN",
+        "toEmail": "={{ $('Anfrage einordnen').item.json.kunde_mail }}",
+        "subject": "=Ihre Notfallmeldung ist bei uns eingegangen",
+        "emailFormat": "text",
+        "message": "=Guten Tag {{ $('Anfrage einordnen').item.json.kunde_name }},\n\nIhre Meldung ({{ $('Anfrage einordnen').item.json.taetigkeit }}) haben wir als Notfall eingestuft und direkt an unsere Bereitschaft weitergegeben. Ein Monteur meldet sich telefonisch unter {{ $('Anfrage einordnen').item.json.kunde_telefon }} bei Ihnen.\n\nBis dahin bitte:\n- Bei Wasseraustritt den Haupthahn schliessen\n- Bei Gasgeruch nicht schalten, Fenster oeffnen, Gebaeude verlassen und 112 anrufen\n- Bei Kurzschluss die betroffene Sicherung ausschalten\n\nEinen Terminvorschlag schicken wir Ihnen bewusst nicht — hier geht Tempo vor Kalender.\n\nMit freundlichen Gruessen\nIhr Handwerksbetrieb\n\n---\nDiese Eingangsbestaetigung wurde automatisch erstellt und mithilfe von KI vorbereitet.",
+        "options": {}
+      },
+      "id": "mail-notfall",
+      "name": "Notfall-Rueckmeldung an Kunden",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [1480, 140]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://www.googleapis.com/calendar/v3/freeBusy",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ timeMin: new Date().toISOString(), timeMax: new Date(Date.now() + 21 * 86400000).toISOString(), timeZone: 'Europe/Berlin', items: [{ id: 'HIER_KALENDER_ID_EINTRAGEN' }] }) }}",
+        "options": {"response": {"response": {"neverError": true}}}
+      },
+      "id": "kalender-abfragen",
+      "name": "Kalender-Verfuegbarkeit abfragen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1260, 480],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Aus den belegten Zeiten des Kalenders werden freie Slots gerechnet.\n// Warum eine einzige freeBusy-Abfrage statt vieler Einzelabfragen: spart API-Kontingent\n// und laesst sich hier komplett nachvollziehen. Faellt der Kalender aus, wird der\n// Vorschlag bewusst NICHT geraten, sondern der Fall an die Disposition uebergeben.\nconst anfrage = $('Anfrage einordnen').first().json;\n\n// Erfahrungswerte fuer die Einsatzdauer in Minuten — im Betrieb anpassen.\nconst DAUER = { Heizung: 120, Sanitaer: 90, Elektro: 90, Dach: 180, Fenster: 120, Maler: 240, Sonstiges: 90 };\nconst dauer = DAUER[anfrage.gewerk] ?? 90;\n\n// Dringende Faelle bekommen ab morgen Termine, normale erst ab uebermorgen —\n// ein Tag Vorlauf fuer Materialbeschaffung und Tourenplanung.\nconst vorlaufTage = anfrage.dringlichkeit === 'dringend' ? 1 : 2;\n\nconst antwort = $input.first().json ?? {};\nconst kalender = antwort.calendars ?? {};\nconst kalenderErreichbar = Object.keys(kalender).length > 0;\n\nconst belegt = [];\nfor (const eintrag of Object.values(kalender)) {\n  for (const b of eintrag.busy ?? []) {\n    belegt.push([new Date(b.start).getTime(), new Date(b.end).getTime()]);\n  }\n}\n\nconst zweiStellig = (n) => String(n).padStart(2, '0');\nconst datumDe = (d) => `${zweiStellig(d.getDate())}.${zweiStellig(d.getMonth() + 1)}.${d.getFullYear()}`;\nconst uhrzeit = (d) => `${zweiStellig(d.getHours())}:${zweiStellig(d.getMinutes())}`;\nconst WOCHENTAG = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'];\n\nconst heute = new Date();\nheute.setHours(0, 0, 0, 0);\n\nconst vorschlaege = [];\nfor (let tag = vorlaufTage; tag <= 21 && vorschlaege.length < 3; tag++) {\n  const d = new Date(heute);\n  d.setDate(d.getDate() + tag);\n  const wt = d.getDay();\n  if (wt === 0 || wt === 6) continue; // Regeltermine nur Mo–Fr\n\n  for (const stunde of [8, 10, 13, 15]) {\n    if (vorschlaege.length >= 3) break;\n    const von = new Date(d);\n    von.setHours(stunde, 0, 0, 0);\n    const bis = new Date(von.getTime() + dauer * 60000);\n    if (bis.getHours() > 17 || (bis.getHours() === 17 && bis.getMinutes() > 0)) continue; // Feierabend\n\n    // Ueberschneidung mit einem belegten Block? Dann Slot verwerfen.\n    const kollision = belegt.some(([bs, be]) => von.getTime() < be && bis.getTime() > bs);\n    if (kollision) continue;\n\n    // Pro Tag hoechstens ein Vorschlag, damit der Kunde echte Alternativen bekommt.\n    if (vorschlaege.some((v) => v.datum === datumDe(von))) continue;\n\n    vorschlaege.push({\n      wochentag: WOCHENTAG[von.getDay()],\n      datum: datumDe(von),\n      von: uhrzeit(von),\n      bis: uhrzeit(bis),\n      start_iso: von.toISOString(),\n      ende_iso: bis.toISOString()\n    });\n  }\n}\n\nconst text = vorschlaege\n  .map((v, i) => `${i + 1}) ${v.wochentag}, ${v.datum}, ${v.von}–${v.bis} Uhr`)\n  .join('\\n');\n\nreturn [{\n  json: {\n    ...anfrage,\n    kalender_erreichbar: kalenderErreichbar,\n    belegte_bloecke: belegt.length,\n    einsatzdauer_minuten: dauer,\n    anzahl_vorschlaege: vorschlaege.length,\n    vorschlaege,\n    vorschlag_text: text,\n    // Nur verschicken, wenn der Kalender wirklich geantwortet hat und mindestens\n    // zwei Alternativen zusammenkommen — ein einzelner Termin ist kein Angebot.\n    versandfaehig: kalenderErreichbar && vorschlaege.length >= 2 && Boolean(anfrage.kunde_mail)\n  }\n}];"
+      },
+      "id": "termine-rechnen",
+      "name": "Terminvorschlaege berechnen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1480, 480]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {"caseSensitive": true, "version": 2},
+          "conditions": [
+            {"id": "versand", "leftValue": "={{ $json.versandfaehig }}", "rightValue": true, "operator": {"type": "boolean", "operation": "true", "singleValue": true}}
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "weiche-termine",
+      "name": "Genug freie Termine?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1700, 480]
+    },
+    {
+      "parameters": {
+        "fromEmail": "HIER_ABSENDERADRESSE_EINTRAGEN",
+        "toEmail": "={{ $json.kunde_mail }}",
+        "subject": "=Terminvorschlaege fuer Ihre Anfrage: {{ $json.taetigkeit }}",
+        "emailFormat": "text",
+        "message": "=Guten Tag {{ $json.kunde_name }},\n\nvielen Dank fuer Ihre Anfrage vom {{ $json.eingegangen_am }}.\n\nAnliegen: {{ $json.taetigkeit }} ({{ $json.gewerk }})\nEinsatzort: {{ $json.adresse }}\nGeplante Dauer: ca. {{ $json.einsatzdauer_minuten }} Minuten\n\nFolgende Termine koennen wir Ihnen anbieten:\n\n{{ $json.vorschlag_text }}\n\nAntworten Sie einfach mit der Nummer Ihres Wunschtermins — wir bestaetigen ihn verbindlich. Passt keiner der Termine, rufen Sie uns gerne an.\n\nMit freundlichen Gruessen\nIhr Handwerksbetrieb\n\n---\nDiese Terminvorschlaege wurden automatisch aus unserem Kalender erzeugt und mithilfe von KI vorbereitet. Verbindlich wird der Termin mit unserer Bestaetigung.",
+        "options": {}
+      },
+      "id": "mail-termine",
+      "name": "Terminvorschlaege an Kunden senden",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [1920, 400]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {"id": "grund", "name": "dispo_grund", "value": "={{ !$json.kalender_erreichbar ? 'Kalender nicht erreichbar — Verfuegbarkeit konnte nicht geprueft werden' : ($json.anzahl_vorschlaege < 2 ? 'Nur ' + $json.anzahl_vorschlaege + ' freier Slot in den naechsten 21 Tagen' : 'Keine gueltige E-Mail-Adresse des Kunden') }}", "type": "string"},
+            {"id": "aktion", "name": "naechster_schritt", "value": "=Kunde {{ $json.kunde_name }} unter {{ $json.kunde_telefon }} anrufen und Termin manuell abstimmen", "type": "string"},
+            {"id": "prio", "name": "prioritaet", "value": "={{ $json.dringlichkeit === 'dringend' ? 'hoch' : 'normal' }}", "type": "string"}
+          ]
+        },
+        "options": {}
+      },
+      "id": "dispo-manuell",
+      "name": "An Disposition uebergeben",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1920, 600]
+    }
+  ],
+  "connections": {
+    "Kundenanfrage empfangen": {"main": [[{"node": "Anfrage per KI einordnen", "type": "main", "index": 0}]]},
+    "Anfrage per KI einordnen": {"main": [[{"node": "Anfrage einordnen", "type": "main", "index": 0}]]},
+    "Anfrage einordnen": {"main": [[{"node": "Notfall?", "type": "main", "index": 0}]]},
+    "Notfall?": {"main": [[{"node": "Bereitschaft telefonisch alarmieren", "type": "main", "index": 0}], [{"node": "Kalender-Verfuegbarkeit abfragen", "type": "main", "index": 0}]]},
+    "Bereitschaft telefonisch alarmieren": {"main": [[{"node": "Notfall-Rueckmeldung an Kunden", "type": "main", "index": 0}]]},
+    "Kalender-Verfuegbarkeit abfragen": {"main": [[{"node": "Terminvorschlaege berechnen", "type": "main", "index": 0}]]},
+    "Terminvorschlaege berechnen": {"main": [[{"node": "Genug freie Termine?", "type": "main", "index": 0}]]},
+    "Genug freie Termine?": {"main": [[{"node": "Terminvorschlaege an Kunden senden", "type": "main", "index": 0}], [{"node": "An Disposition uebergeben", "type": "main", "index": 0}]]}
+  },
+  "settings": {"executionOrder": "v1"},
+  "pinData": {}
+}

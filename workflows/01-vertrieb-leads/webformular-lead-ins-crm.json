@@ -1,0 +1,255 @@
+{
+  "name": "Webformular-Anfrage pruefen, entdoppeln und ins CRM uebernehmen",
+  "meta": {
+    "beschreibung": "Nimmt Anfragen aus dem Kontakt- oder Angebotsformular der Website per Webhook entgegen, prueft die Pflichtfelder, gleicht die E-Mail-Adresse gegen bestehende CRM-Kontakte ab und legt entweder einen neuen Lead an oder haengt eine Notiz an den vorhandenen Kontakt. Danach gehen eine Eingangsbestaetigung an den Interessenten und eine Benachrichtigung an den Vertrieb raus; faellt die CRM-Schnittstelle aus, wird die Anfrage nicht verworfen, sondern als Stoerung gemeldet. Lohnt sich fuer jeden Betrieb, bei dem Formularanfragen bisher per Hand ins CRM getippt werden. DSGVO-Hinweis: Die Formulardaten sind personenbezogen — Zweck und Speicherdauer in der Datenschutzerklaerung nennen und mit dem CRM-Anbieter einen AV-Vertrag nach Art. 28 DSGVO schliessen.",
+    "kategorie": "Vertrieb & Leads",
+    "schwierigkeit": "mittel",
+    "benoetigt": ["Webformular mit Webhook-Ziel", "CRM mit REST-API", "SMTP-Postfach"],
+    "quelle": "https://die-ki-agentur.de/n8n-agentur/"
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Formularanfragen automatisch ins CRM\n\n**Ablauf:** Webformular sendet an Webhook → Pflichtfelder pruefen → Dublettencheck ueber die E-Mail-Adresse im CRM → neuer Lead **oder** Notiz am bestehenden Kontakt → Bestaetigungsmail an den Interessenten → Info an den Vertrieb.\n\n**Vor dem Start:**\n1. Webhook-URL aus dem Node `Formular empfangen` in das Website-Formular eintragen (POST, JSON)\n2. Im Formular die Feldnamen `name`, `email`, `nachricht`, optional `firma`, `telefon`, `quelle` verwenden\n3. In allen drei HTTP-Nodes `HIER_CRM_API_URL` und `HIER_CRM_API_KEY_EINTRAGEN` ersetzen — besser noch: Header-Auth-Credential in n8n anlegen\n4. Absender- und Vertriebsadresse in den Mail-Nodes eintragen\n5. Datenschutzerklaerung um Zweck und Speicherdauer der Formulardaten ergaenzen, AV-Vertrag mit dem CRM-Anbieter\n\n**Fehlerzweig:** Antwortet das CRM nicht, geht eine Stoermeldung mit der kompletten Anfrage an die IT — die Anfrage geht also nicht verloren.\n\n**Betreuung:** https://die-ki-agentur.de/n8n-agentur/",
+        "height": 560,
+        "width": 480
+      },
+      "id": "note-doku",
+      "name": "Kurzanleitung",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-160, 60]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "webformular-lead",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "trigger-webhook",
+      "name": "Formular empfangen",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [380, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Formularanbieter liefern die Felder mal unter body, mal direkt im Item.\n// Erst normalisieren, sonst prueft der naechste Schritt gegen undefined und\n// laesst jede Anfrage durchfallen.\nconst raus = [];\nfor (const eintrag of $input.all()) {\n  const d = eintrag.json.body ?? eintrag.json;\n  const email = String(d.email ?? '').trim().toLowerCase();\n  const name = String(d.name ?? '').trim();\n  const nachricht = String(d.nachricht ?? d.message ?? '').trim();\n\n  // Bewusst nur ein grober Formcheck: eine strenge RFC-Regex verwirft mehr\n  // gueltige Adressen (Umlautdomains, lange TLDs) als sie Tippfehler faengt.\n  const mailOk = /^[^@\\s]+@[^@\\s]+\\.[a-zA-Z]{2,}$/.test(email);\n\n  const fehlend = [];\n  if (!name) fehlend.push('Name');\n  if (!mailOk) fehlend.push('E-Mail');\n  if (!nachricht) fehlend.push('Nachricht');\n\n  raus.push({\n    json: {\n      name,\n      email,\n      // Telefonnummern kommen in jeder denkbaren Schreibweise an; fuer den\n      // Dublettenabgleich und das CRM reicht die reine Ziffernfolge.\n      telefon: String(d.telefon ?? d.phone ?? '').replace(/[^0-9+]/g, ''),\n      firma: String(d.firma ?? d.company ?? '').trim(),\n      nachricht,\n      quelle: String(d.quelle ?? 'Webformular').trim(),\n      eingegangen_am: new Date().toLocaleDateString('de-DE'),\n      fehlende_felder: fehlend,\n      vollstaendig: fehlend.length === 0\n    }\n  });\n}\nreturn raus;"
+      },
+      "id": "code-pflichtfelder",
+      "name": "Pflichtfelder pruefen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [600, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {"caseSensitive": true, "version": 2},
+          "conditions": [
+            {
+              "id": "ist-vollstaendig",
+              "leftValue": "={{ $json.vollstaendig }}",
+              "rightValue": true,
+              "operator": {"type": "boolean", "operation": "true", "singleValue": true}
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-vollstaendig",
+      "name": "Angaben vollstaendig?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [820, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://HIER_CRM_API_URL/v1/kontakte",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {"name": "email", "value": "={{ $json.email }}"},
+            {"name": "limit", "value": "5"}
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {"name": "X-Api-Key", "value": "HIER_CRM_API_KEY_EINTRAGEN"},
+            {"name": "Accept", "value": "application/json"}
+          ]
+        },
+        "options": {"timeout": 15000}
+      },
+      "id": "http-dublettencheck",
+      "name": "Kontakt im CRM suchen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1040, 180],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {"caseSensitive": false, "version": 2},
+          "conditions": [
+            {
+              "id": "treffer-vorhanden",
+              "leftValue": "={{ ($json.data ?? $json.kontakte ?? $json.results ?? []).length }}",
+              "rightValue": 0,
+              "operator": {"type": "number", "operation": "gt"}
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-dublette",
+      "name": "Kontakt schon bekannt?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1260, 180]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://HIER_CRM_API_URL/v1/kontakte/{{ ($json.data ?? $json.kontakte ?? $json.results ?? [{}])[0].id }}/notizen",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {"name": "X-Api-Key", "value": "HIER_CRM_API_KEY_EINTRAGEN"},
+            {"name": "Content-Type", "value": "application/json"}
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  typ: 'Formularanfrage',\n  datum: $('Pflichtfelder pruefen').item.json.eingegangen_am,\n  betreff: 'Erneute Anfrage ueber ' + $('Pflichtfelder pruefen').item.json.quelle,\n  text: $('Pflichtfelder pruefen').item.json.nachricht,\n  telefon: $('Pflichtfelder pruefen').item.json.telefon\n}) }}",
+        "options": {"timeout": 15000}
+      },
+      "id": "http-notiz",
+      "name": "Notiz am Kontakt ergaenzen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1480, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://HIER_CRM_API_URL/v1/leads",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {"name": "X-Api-Key", "value": "HIER_CRM_API_KEY_EINTRAGEN"},
+            {"name": "Content-Type", "value": "application/json"}
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  name: $('Pflichtfelder pruefen').item.json.name,\n  email: $('Pflichtfelder pruefen').item.json.email,\n  telefon: $('Pflichtfelder pruefen').item.json.telefon,\n  firma: $('Pflichtfelder pruefen').item.json.firma,\n  nachricht: $('Pflichtfelder pruefen').item.json.nachricht,\n  quelle: $('Pflichtfelder pruefen').item.json.quelle,\n  status: 'Neu',\n  eingegangen_am: $('Pflichtfelder pruefen').item.json.eingegangen_am\n}) }}",
+        "options": {"timeout": 15000}
+      },
+      "id": "http-lead-anlegen",
+      "name": "Neuen Lead anlegen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1480, 60]
+    },
+    {
+      "parameters": {
+        "fromEmail": "HIER_ABSENDER_MAIL_EINTRAGEN",
+        "toEmail": "={{ $('Pflichtfelder pruefen').item.json.email }}",
+        "subject": "=Ihre Anfrage ist bei uns eingegangen",
+        "emailFormat": "text",
+        "text": "=Guten Tag {{ $('Pflichtfelder pruefen').item.json.name }},\n\nvielen Dank fuer Ihre Anfrage vom {{ $('Pflichtfelder pruefen').item.json.eingegangen_am }}. Sie ist bei uns eingegangen und wird von einem Mitarbeiter geprueft. In der Regel melden wir uns innerhalb eines Werktags.\n\nIhre Nachricht an uns:\n\"{{ $('Pflichtfelder pruefen').item.json.nachricht }}\"\n\nFalls sich zwischenzeitlich etwas ergaenzt, antworten Sie einfach auf diese Mail.\n\nFreundliche Gruesse\nHIER_ABSENDERNAME_EINTRAGEN\n\n--\nIhre Angaben speichern wir zur Bearbeitung dieser Anfrage. Details in unserer Datenschutzerklaerung.",
+        "options": {}
+      },
+      "id": "mail-bestaetigung",
+      "name": "Bestaetigung an Interessent",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [1700, 180]
+    },
+    {
+      "parameters": {
+        "fromEmail": "HIER_ABSENDER_MAIL_EINTRAGEN",
+        "toEmail": "HIER_VERTRIEB_MAIL_EINTRAGEN",
+        "subject": "=Neue Anfrage: {{ $('Pflichtfelder pruefen').item.json.name }}{{ $('Pflichtfelder pruefen').item.json.firma ? ' (' + $('Pflichtfelder pruefen').item.json.firma + ')' : '' }}",
+        "emailFormat": "text",
+        "text": "=Eingang: {{ $('Pflichtfelder pruefen').item.json.eingegangen_am }}\nQuelle: {{ $('Pflichtfelder pruefen').item.json.quelle }}\n\nName: {{ $('Pflichtfelder pruefen').item.json.name }}\nFirma: {{ $('Pflichtfelder pruefen').item.json.firma || '-' }}\nE-Mail: {{ $('Pflichtfelder pruefen').item.json.email }}\nTelefon: {{ $('Pflichtfelder pruefen').item.json.telefon || '-' }}\n\nNachricht:\n{{ $('Pflichtfelder pruefen').item.json.nachricht }}\n\nCRM: Der Kontakt war {{ ($('Kontakt im CRM suchen').item.json.data ?? $('Kontakt im CRM suchen').item.json.kontakte ?? $('Kontakt im CRM suchen').item.json.results ?? []).length > 0 ? 'bereits vorhanden — die Anfrage wurde als Notiz ergaenzt' : 'neu — es wurde ein Lead angelegt' }}.",
+        "options": {}
+      },
+      "id": "mail-vertrieb",
+      "name": "Vertrieb benachrichtigen",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [1920, 180]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {"id": "grund", "name": "ablehnungsgrund", "value": "=Unvollstaendige Anfrage — es fehlt: {{ $json.fehlende_felder.join(', ') }}", "type": "string"},
+            {"id": "aktion", "name": "naechster_schritt", "value": "Nicht ins CRM uebernommen. Formular-Pflichtfelder pruefen oder Spam-Eintrag verwerfen.", "type": "string"},
+            {"id": "rohdaten", "name": "rohdaten", "value": "={{ JSON.stringify($json) }}", "type": "string"}
+          ]
+        },
+        "options": {}
+      },
+      "id": "set-unvollstaendig",
+      "name": "Unvollstaendige Anfrage aussortieren",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1040, 520]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {"id": "stoerung", "name": "stoerung", "value": "CRM-Schnittstelle nicht erreichbar", "type": "string"},
+            {"id": "fehlertext", "name": "fehlermeldung", "value": "={{ $json.error?.message ?? $json.message ?? 'Keine Antwort vom CRM' }}", "type": "string"},
+            {"id": "anfrage", "name": "anfrage_gesichert", "value": "={{ JSON.stringify($('Pflichtfelder pruefen').item.json) }}", "type": "string"},
+            {"id": "zeit", "name": "zeitpunkt", "value": "={{ new Date().toLocaleString('de-DE') }}", "type": "string"}
+          ]
+        },
+        "options": {}
+      },
+      "id": "set-stoerung",
+      "name": "Anfrage bei CRM-Ausfall sichern",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1260, 660]
+    },
+    {
+      "parameters": {
+        "fromEmail": "HIER_ABSENDER_MAIL_EINTRAGEN",
+        "toEmail": "HIER_IT_MAIL_EINTRAGEN",
+        "subject": "=Stoerung: Lead konnte nicht ins CRM uebernommen werden",
+        "emailFormat": "text",
+        "text": "=Das CRM hat auf die Dublettenpruefung nicht geantwortet. Die Anfrage ist unten vollstaendig gesichert und muss von Hand nachgetragen werden.\n\nZeitpunkt: {{ $json.zeitpunkt }}\nFehlermeldung: {{ $json.fehlermeldung }}\n\nAnfrage (JSON):\n{{ $json.anfrage_gesichert }}",
+        "options": {}
+      },
+      "id": "mail-stoerung",
+      "name": "Stoerung an IT melden",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [1480, 660]
+    }
+  ],
+  "connections": {
+    "Formular empfangen": {"main": [[{"node": "Pflichtfelder pruefen", "type": "main", "index": 0}]]},
+    "Pflichtfelder pruefen": {"main": [[{"node": "Angaben vollstaendig?", "type": "main", "index": 0}]]},
+    "Angaben vollstaendig?": {"main": [[{"node": "Kontakt im CRM suchen", "type": "main", "index": 0}], [{"node": "Unvollstaendige Anfrage aussortieren", "type": "main", "index": 0}]]},
+    "Kontakt im CRM suchen": {"main": [[{"node": "Kontakt schon bekannt?", "type": "main", "index": 0}], [{"node": "Anfrage bei CRM-Ausfall sichern", "type": "main", "index": 0}]]},
+    "Kontakt schon bekannt?": {"main": [[{"node": "Notiz am Kontakt ergaenzen", "type": "main", "index": 0}], [{"node": "Neuen Lead anlegen", "type": "main", "index": 0}]]},
+    "Neuen Lead anlegen": {"main": [[{"node": "Bestaetigung an Interessent", "type": "main", "index": 0}]]},
+    "Notiz am Kontakt ergaenzen": {"main": [[{"node": "Bestaetigung an Interessent", "type": "main", "index": 0}]]},
+    "Bestaetigung an Interessent": {"main": [[{"node": "Vertrieb benachrichtigen", "type": "main", "index": 0}]]},
+    "Anfrage bei CRM-Ausfall sichern": {"main": [[{"node": "Stoerung an IT melden", "type": "main", "index": 0}]]}
+  },
+  "settings": {"executionOrder": "v1"},
+  "pinData": {}
+}

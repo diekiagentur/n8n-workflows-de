@@ -1,0 +1,229 @@
+{
+  "name": "Reklamation ueber Formular erfassen, bewerten und eskalieren",
+  "meta": {
+    "beschreibung": "Nimmt Reklamationen ueber ein n8n-Formular auf (Bestellnummer, Problembeschreibung, Foto-Upload), prueft die Angaben auf Plausibilitaet und Gewaehrleistungsfrist und laesst die KI Schweregrad und Sachgebiet bestimmen. Daraus entstehen Ticket, Prioritaet und eine realistische Bearbeitungszeit in Werktagen; kritische Faelle - Sicherheits-, Gesundheits- oder Rechtsrisiko - gehen sofort an die Teamleitung statt in die Standard-Queue. Der Kunde bekommt eine Eingangsbestaetigung mit der Ticketnummer und einer belastbaren Frist. DSGVO-Hinweis: Das Formular erhebt personenbezogene Daten und Fotos - AV-Vertrag mit dem KI-Anbieter schliessen oder lokales Modell (Ollama) nutzen, Loeschfristen im Ticketsystem hinterlegen und im Formular auf die Datenschutzerklaerung verlinken. Die KI bewertet nur, entschieden wird die Eskalation ueber feste Regeln.",
+    "kategorie": "Kundenservice",
+    "schwierigkeit": "mittel",
+    "benoetigt": ["n8n-Formular (formTrigger)", "OpenAI-API (oder Ollama)", "Ticketsystem mit API (z. B. Zammad, Freshdesk, Jira Service Management)", "SMTP-Versand"],
+    "quelle": "https://die-ki-agentur.de/n8n-agentur/"
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Reklamationen aufnehmen und richtig priorisieren\n\n**Ablauf:** Formular → Angaben pruefen (Bestellnummer, Gewaehrleistungsfrist, Foto) → KI bestimmt Schweregrad und Sachgebiet → feste Eskalationsregeln → Ticket anlegen → kritisch: sofort an die Teamleitung / sonst Standard-Queue → Eingangsbestaetigung mit realistischer Frist.\n\n**Warum feste Regeln zusaetzlich zur KI:** Bei Verletzungsgefahr, Rauch, Lebensmitteln oder eingeschaltetem Anwalt entscheidet nicht das Modell, sondern eine Wortliste. Ein uebersehener kritischer Fall kostet mehr als ein falscher Alarm.\n\n**Vor dem Start:**\n1. Formular-Pfad und Titel anpassen, Link zur Datenschutzerklaerung ergaenzen\n2. In `Ticket anlegen` die API-URL setzen (HIER_TICKET_API_URL)\n3. Postfaecher eintragen: Teamleitung, Service, Absender\n4. Bearbeitungszeiten in `Eskalationsregeln anwenden` an die eigene Besetzung anpassen - versprochen wird nur, was gehalten wird\n5. Bei Fotos und Kundendaten: AV-Vertrag mit dem KI-Anbieter oder lokales Modell\n\n**Betreuung:** https://die-ki-agentur.de/n8n-agentur/",
+        "height": 620,
+        "width": 480
+      },
+      "id": "note-doku",
+      "name": "Kurzanleitung",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-160, -60]
+    },
+    {
+      "parameters": {
+        "path": "reklamation",
+        "formTitle": "Reklamation melden",
+        "formDescription": "Bitte beschreiben Sie das Problem moeglichst genau. Mit Bestellnummer und Foto koennen wir den Fall deutlich schneller klaeren. Ihre Angaben verwenden wir ausschliesslich zur Bearbeitung dieser Reklamation.",
+        "formFields": {"values": [
+          {"fieldLabel": "Bestellnummer", "placeholder": "z. B. AB-123456", "requiredField": true},
+          {"fieldLabel": "Bestelldatum", "fieldType": "date", "requiredField": true},
+          {"fieldLabel": "Ihr Name", "requiredField": true},
+          {"fieldLabel": "E-Mail-Adresse", "fieldType": "email", "requiredField": true},
+          {"fieldLabel": "Sachgebiet", "fieldType": "dropdown", "requiredField": true, "fieldOptions": {"values": [
+            {"option": "Ware beschaedigt"},
+            {"option": "Falsche oder fehlende Ware"},
+            {"option": "Ware funktioniert nicht"},
+            {"option": "Lieferung verspaetet"},
+            {"option": "Rechnung oder Zahlung"},
+            {"option": "Sonstiges"}
+          ]}},
+          {"fieldLabel": "Was ist passiert?", "fieldType": "textarea", "placeholder": "Was genau ist das Problem, seit wann besteht es, was haben Sie schon versucht?", "requiredField": true},
+          {"fieldLabel": "Fotos zum Problem", "fieldType": "file", "multipleFiles": true, "acceptFileTypes": ".jpg,.jpeg,.png,.pdf", "requiredField": false},
+          {"fieldLabel": "Ihre Wunschloesung", "fieldType": "dropdown", "requiredField": true, "fieldOptions": {"values": [
+            {"option": "Ersatzlieferung"},
+            {"option": "Reparatur"},
+            {"option": "Erstattung"},
+            {"option": "Beratung, noch offen"}
+          ]}}
+        ]},
+        "options": {"appendAttribution": false}
+      },
+      "id": "trigger-formular",
+      "name": "Reklamationsformular",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
+      "position": [380, 300],
+      "webhookId": "c7e93b21-4f6a-4d05-8b2c-91ad63f0e7b8"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Erst pruefen, dann bewerten. Was hier auffaellt, kostet spaeter im Ticket\n// mehrere Rueckfragen: unplausible Bestellnummern, ein Bestelldatum in der\n// Zukunft oder eine Beschreibung, die aus zwei Woertern besteht.\n// Die Gewaehrleistungsfrist wird gleich mitgerechnet - sie entscheidet spaeter\n// darueber, ob der Fall Anspruch oder Kulanz ist, und gehoert nicht in den\n// Ermessensspielraum eines Sprachmodells.\nconst GEWAEHRLEISTUNG_MONATE = 24;\nconst MIN_BESCHREIBUNG = 20;\n\nconst e = $input.first().json;\nconst binaerdaten = $input.first().binary ?? {};\n\nconst bestellnummer = String(e['Bestellnummer'] ?? '').trim().toUpperCase();\nconst beschreibung = String(e['Was ist passiert?'] ?? '').trim();\nconst bestelldatum = new Date(e['Bestelldatum'] ?? '');\nconst heute = new Date();\n\nconst maengel = [];\n// Zwei bis drei Buchstaben, optionaler Bindestrich, fuenf bis acht Ziffern -\n// bei abweichendem Nummernkreis hier anpassen.\nif (!/^[A-Z]{0,3}-?\\d{5,8}$/.test(bestellnummer)) maengel.push('Die Bestellnummer sieht nicht wie eine unserer Nummern aus (Beispiel: AB-123456).');\nif (isNaN(bestelldatum.getTime())) maengel.push('Das Bestelldatum konnte nicht gelesen werden.');\nelse if (bestelldatum > heute) maengel.push('Das Bestelldatum liegt in der Zukunft.');\nif (beschreibung.length < MIN_BESCHREIBUNG) maengel.push('Die Beschreibung ist zu knapp, um den Fall einzuschaetzen.');\n\nconst tageSeitKauf = isNaN(bestelldatum.getTime()) ? null : Math.floor((heute - bestelldatum) / 86400000);\nconst fristEnde = new Date(bestelldatum);\nfristEnde.setMonth(fristEnde.getMonth() + GEWAEHRLEISTUNG_MONATE);\n\nreturn [{\n  json: {\n    bestellnummer,\n    bestelldatum_de: isNaN(bestelldatum.getTime()) ? '' : bestelldatum.toLocaleDateString('de-DE'),\n    tage_seit_kauf: tageSeitKauf,\n    in_gewaehrleistung: !isNaN(bestelldatum.getTime()) && heute <= fristEnde,\n    gewaehrleistung_bis_de: isNaN(fristEnde.getTime()) ? '' : fristEnde.toLocaleDateString('de-DE'),\n    kunde: String(e['Ihr Name'] ?? '').trim(),\n    email: String(e['E-Mail-Adresse'] ?? '').trim(),\n    sachgebiet_kunde: e['Sachgebiet'] ?? 'Sonstiges',\n    wunschloesung: e['Ihre Wunschloesung'] ?? 'Beratung, noch offen',\n    beschreibung,\n    anzahl_fotos: Object.keys(binaerdaten).length,\n    hat_foto: Object.keys(binaerdaten).length > 0,\n    eingang_iso: new Date().toISOString(),\n    eingang_de: heute.toLocaleString('de-DE', { timeZone: 'Europe/Berlin' }),\n    maengel,\n    vollstaendig: maengel.length === 0\n  }\n}];"
+      },
+      "id": "pruefe-angaben",
+      "name": "Angaben pruefen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [600, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {"caseSensitive": true, "version": 2},
+          "conditions": [
+            {"id": "vollstaendig", "leftValue": "={{ $json.vollstaendig }}", "rightValue": true, "operator": {"type": "boolean", "operation": "true", "singleValue": true}}
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-vollstaendig",
+      "name": "Angaben vollstaendig?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [820, 300]
+    },
+    {
+      "parameters": {
+        "fromEmail": "HIER_ABSENDER_EINTRAGEN",
+        "toEmail": "={{ $json.email }}",
+        "subject": "Ihre Reklamation - wir brauchen noch eine Angabe",
+        "emailFormat": "text",
+        "text": "=Guten Tag {{ $json.kunde }},\n\nvielen Dank fuer Ihre Meldung. Bevor wir den Fall aufnehmen koennen, fehlt uns noch etwas:\n\n- {{ $json.maengel.join('\\n- ') }}\n\nIhre bisherigen Angaben:\nBestellnummer: {{ $json.bestellnummer || 'keine' }}\nBestelldatum: {{ $json.bestelldatum_de || 'unklar' }}\nProblem: {{ $json.beschreibung }}\n\nBitte antworten Sie einfach auf diese Mail oder fuellen Sie das Formular erneut aus. Sobald die Angaben vollstaendig sind, legen wir das Ticket an.\n\nFreundliche Gruesse\nIhr Kundenservice",
+        "options": {}
+      },
+      "id": "mail-rueckfrage",
+      "name": "Rueckfrage an Kunden",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [1040, 580]
+    },
+    {
+      "parameters": {
+        "modelId": {"__rl": true, "value": "gpt-4.1-mini", "mode": "list"},
+        "messages": {"values": [
+          {"role": "system", "content": "Du bewertest eingehende Reklamationen eines deutschen Handels- und Produktionsbetriebs. Antworte AUSSCHLIESSLICH mit einem JSON-Objekt, keine Erklaerung. Felder: schweregrad (genau einer der Werte: kritisch, hoch, mittel, niedrig), sachgebiet (genau einer der Werte: Produktmangel, Transportschaden, Falschlieferung, Lieferverzug, Rechnung, Bedienfehler, Sonstiges), kurzfassung (ein Satz, sachlich, fuer die Ticketuebersicht), kundenstimmung (veraergert, sachlich, verunsichert), erwartete_kosten (gering, mittel, hoch, unklar), rueckfragen (Array von Strings: was der Bearbeiter zusaetzlich wissen muss), konfidenz (Zahl zwischen 0 und 1). Einstufung: 'kritisch' nur bei Gefahr fuer Personen, Gesundheit, Betriebssicherheit oder bei angekuendigten rechtlichen Schritten. 'hoch' bei Produktionsstillstand, Totalausfall oder wiederholtem Fehler. 'mittel' bei normalen Maengeln mit Ersatz- oder Reparaturbedarf. 'niedrig' bei Schoenheitsfehlern, Fragen und Bedienthemen. Bewerte nur, was dasteht - nichts hineininterpretieren."},
+          {"role": "user", "content": "=Sachgebiet laut Kunde: {{ $json.sachgebiet_kunde }}\nWunschloesung: {{ $json.wunschloesung }}\nBestellung vom {{ $json.bestelldatum_de }} ({{ $json.tage_seit_kauf }} Tage her, in Gewaehrleistung: {{ $json.in_gewaehrleistung }})\nFotos beigefuegt: {{ $json.anzahl_fotos }}\n\nSchilderung des Kunden:\n{{ $json.beschreibung }}"}
+        ]},
+        "jsonOutput": true,
+        "options": {"temperature": 0}
+      },
+      "id": "ki-bewertung",
+      "name": "Schweregrad und Sachgebiet bestimmen",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [1040, 220]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Die KI schlaegt einen Schweregrad vor, entschieden wird er hier. Bei Gefahr\n// fuer Personen oder eingeschaltetem Anwalt darf die Einstufung nicht von einer\n// Modellversion abhaengen - eine Wortliste ist in diesen Faellen das robustere\n// Werkzeug. Sie kann nur nach oben korrigieren, nie nach unten.\nconst GEFAHR = /(verletz|verbrannt|verbrennung|brand|rauch|feuer|stromschlag|kurzschluss|explo|gesundheit|arzt|krankenhaus|schimmel|verdorben|allergisch|scharfe kante|umgekippt|abgebrochen und)/i;\nconst RECHTLICH = /(anwalt|rechtsanwalt|klage|verbraucherzentrale|presse|bewertung|widerruf|frist setze|letzte mahnung|gericht)/i;\nconst STILLSTAND = /(stillstand|produktion steht|ausfall|komplett defekt|geht gar nicht|totalausfall|baustelle steht)/i;\n\n// Bearbeitungszeiten in Werktagen. Bewusst konservativ: eine gehaltene Frist\n// beruhigt mehr als eine ehrgeizige, die reisst.\nconst FRISTEN = {\n  kritisch: {werktage: 0, zusage: 'noch heute, spaetestens innerhalb von 4 Stunden', queue: 'Eskalation Teamleitung'},\n  hoch:     {werktage: 1, zusage: 'innerhalb eines Werktags',                        queue: 'Prioritaet'},\n  mittel:   {werktage: 2, zusage: 'innerhalb von zwei Werktagen',                    queue: 'Standard'},\n  niedrig:  {werktage: 5, zusage: 'innerhalb von fuenf Werktagen',                   queue: 'Standard'}\n};\n\n// Samstag und Sonntag ueberspringen - sonst verspricht die Bestaetigung eine\n// Rueckmeldung am Sonntag und der Kunde wartet umsonst.\nfunction werktageAddieren(start, tage) {\n  const d = new Date(start);\n  let offen = tage;\n  while (offen > 0) {\n    d.setDate(d.getDate() + 1);\n    if (d.getDay() !== 0 && d.getDay() !== 6) offen--;\n  }\n  return d;\n}\n\nconst fall = $('Angaben pruefen').first().json;\nconst k = $input.first().json.message?.content ?? $input.first().json;\nconst text = `${fall.beschreibung} ${fall.sachgebiet_kunde}`;\n\nlet schweregrad = FRISTEN[k.schweregrad] ? k.schweregrad : 'mittel';\nconst eskalationsgruende = [];\n\nif (GEFAHR.test(text)) { schweregrad = 'kritisch'; eskalationsgruende.push('Hinweis auf Gefahr fuer Personen oder Gesundheit'); }\nif (RECHTLICH.test(text)) { schweregrad = 'kritisch'; eskalationsgruende.push('Rechtliche Schritte oder Oeffentlichkeit angekuendigt'); }\nif (schweregrad !== 'kritisch' && STILLSTAND.test(text)) { schweregrad = 'hoch'; eskalationsgruende.push('Ausfall oder Stillstand beim Kunden'); }\nif (Number(k.konfidenz ?? 0) < 0.6 && schweregrad === 'niedrig') { schweregrad = 'mittel'; eskalationsgruende.push('KI unsicher - Einstufung vorsichtshalber angehoben'); }\n\nconst frist = FRISTEN[schweregrad];\nconst faellig = schweregrad === 'kritisch'\n  ? new Date(Date.now() + 4 * 60 * 60 * 1000)\n  : werktageAddieren(new Date(), frist.werktage);\n\nreturn [{\n  json: {\n    ...fall,\n    schweregrad,\n    kritisch: schweregrad === 'kritisch',\n    sachgebiet: k.sachgebiet ?? 'Sonstiges',\n    kurzfassung: k.kurzfassung ?? fall.beschreibung.slice(0, 120),\n    kundenstimmung: k.kundenstimmung ?? 'sachlich',\n    erwartete_kosten: k.erwartete_kosten ?? 'unklar',\n    rueckfragen: Array.isArray(k.rueckfragen) ? k.rueckfragen : [],\n    ki_konfidenz: Number(k.konfidenz ?? 0),\n    ki_vorschlag: k.schweregrad ?? 'unbekannt',\n    eskalationsgruende,\n    regel_hat_korrigiert: eskalationsgruende.length > 0,\n    queue: frist.queue,\n    bearbeitungszeit_zusage: frist.zusage,\n    faellig_de: faellig.toLocaleString('de-DE', { timeZone: 'Europe/Berlin' }),\n    // Anspruch oder Kulanz - das entscheidet ueber die Formulierung im Ticket.\n    anspruchsgrundlage: fall.in_gewaehrleistung ? 'Gewaehrleistung' : 'Kulanzpruefung noetig'\n  }\n}];"
+      },
+      "id": "eskalationsregeln",
+      "name": "Eskalationsregeln anwenden",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1260, 220]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "HIER_TICKET_API_URL",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ titel: 'Reklamation ' + $json.bestellnummer + ' - ' + $json.sachgebiet, beschreibung: $json.beschreibung, kurzfassung: $json.kurzfassung, kunde: { name: $json.kunde, email: $json.email }, bestellnummer: $json.bestellnummer, bestelldatum: $json.bestelldatum_de, prioritaet: $json.schweregrad, queue: $json.queue, sachgebiet: $json.sachgebiet, wunschloesung: $json.wunschloesung, anspruchsgrundlage: $json.anspruchsgrundlage, faellig_bis: $json.faellig_de, anzahl_fotos: $json.anzahl_fotos, eskalationsgruende: $json.eskalationsgruende }) }}",
+        "options": {"response": {"response": {"neverError": true}}, "timeout": 15000}
+      },
+      "id": "http-ticket",
+      "name": "Ticket anlegen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1480, 220]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Die Ticket-API antwortet nur mit ihrer eigenen Struktur - hier wird sie mit\n// dem Fall zusammengefuehrt. Antwortet sie gar nicht oder ohne Nummer, laeuft\n// der Vorgang trotzdem weiter: Der Kunde bekommt eine Ersatzkennung statt gar\n// keiner Bestaetigung, und der Fehler steht im Ticket-Hinweis fuer das Team.\nconst fall = $('Eskalationsregeln anwenden').first().json;\nconst antwort = $input.first().json ?? {};\n\nconst nummer = antwort.ticket_id ?? antwort.id ?? antwort.number ?? antwort.ticketnummer ?? null;\nconst ersatz = 'VORL-' + fall.bestellnummer + '-' + new Date().toISOString().slice(0, 10).split('-').reverse().join('');\n\nreturn [{\n  json: {\n    ...fall,\n    ticketnummer: nummer ?? ersatz,\n    ticket_angelegt: Boolean(nummer),\n    ticket_hinweis: nummer ? '' : 'Ticketsystem hat keine Nummer geliefert - Fall bitte von Hand im System anlegen.'\n  }\n}];"
+      },
+      "id": "ticketnummer",
+      "name": "Ticketnummer uebernehmen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1700, 220]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {"caseSensitive": true, "version": 2},
+          "conditions": [
+            {"id": "kritisch", "leftValue": "={{ $json.kritisch }}", "rightValue": true, "operator": {"type": "boolean", "operation": "true", "singleValue": true}}
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-kritisch",
+      "name": "Kritischer Fall?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1920, 220]
+    },
+    {
+      "parameters": {
+        "fromEmail": "HIER_ABSENDER_EINTRAGEN",
+        "toEmail": "teamleitung@HIER_DOMAIN_EINTRAGEN",
+        "subject": "=SOFORT PRUEFEN: kritische Reklamation {{ $json.ticketnummer }} ({{ $json.sachgebiet }})",
+        "emailFormat": "text",
+        "text": "=Diese Reklamation wurde als kritisch eingestuft und geht NICHT in die Standard-Queue.\n\nTicket: {{ $json.ticketnummer }}\nEingang: {{ $json.eingang_de }}\nRueckmeldung zugesagt bis: {{ $json.faellig_de }}\n\nKunde: {{ $json.kunde }} <{{ $json.email }}>\nBestellung: {{ $json.bestellnummer }} vom {{ $json.bestelldatum_de }} ({{ $json.anspruchsgrundlage }})\nSachgebiet: {{ $json.sachgebiet }} | Stimmung: {{ $json.kundenstimmung }} | Kosten: {{ $json.erwartete_kosten }}\nFotos: {{ $json.anzahl_fotos }}\n\nGruende fuer die Eskalation:\n- {{ ($json.eskalationsgruende.length ? $json.eskalationsgruende : ['Einstufung durch KI']).join('\\n- ') }}\n(KI-Vorschlag war: {{ $json.ki_vorschlag }}, Konfidenz {{ $json.ki_konfidenz }})\n\nKurzfassung: {{ $json.kurzfassung }}\n\nSchilderung des Kunden:\n{{ $json.beschreibung }}\n\nOffene Punkte:\n- {{ ($json.rueckfragen.length ? $json.rueckfragen : ['keine']).join('\\n- ') }}\n\n{{ $json.ticket_hinweis }}",
+        "options": {}
+      },
+      "id": "mail-eskalation",
+      "name": "Teamleitung sofort eskalieren",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [2140, 100]
+    },
+    {
+      "parameters": {
+        "assignments": {"assignments": [
+          {"id": "queue", "name": "einsortiert_in", "value": "={{ $json.queue }}-Queue", "type": "string"},
+          {"id": "hinweis", "name": "hinweis", "value": "=Regulaere Bearbeitung, Rueckmeldung {{ $json.bearbeitungszeit_zusage }} (bis {{ $json.faellig_de }}).", "type": "string"}
+        ]},
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "set-standard",
+      "name": "In Standard-Queue einreihen",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [2140, 360]
+    },
+    {
+      "parameters": {
+        "fromEmail": "HIER_ABSENDER_EINTRAGEN",
+        "toEmail": "={{ $('Ticketnummer uebernehmen').item.json.email }}",
+        "subject": "=Ihre Reklamation ist angekommen - Ticket {{ $('Ticketnummer uebernehmen').item.json.ticketnummer }}",
+        "emailFormat": "text",
+        "text": "=Guten Tag {{ $('Ticketnummer uebernehmen').item.json.kunde }},\n\nvielen Dank fuer Ihre Meldung. Wir haben Ihre Reklamation aufgenommen.\n\nTicketnummer: {{ $('Ticketnummer uebernehmen').item.json.ticketnummer }}\nBestellung: {{ $('Ticketnummer uebernehmen').item.json.bestellnummer }} vom {{ $('Ticketnummer uebernehmen').item.json.bestelldatum_de }}\nIhr Anliegen: {{ $('Ticketnummer uebernehmen').item.json.kurzfassung }}\nFotos erhalten: {{ $('Ticketnummer uebernehmen').item.json.anzahl_fotos }}\n\nWir melden uns {{ $('Ticketnummer uebernehmen').item.json.bearbeitungszeit_zusage }}, das heisst spaetestens am {{ $('Ticketnummer uebernehmen').item.json.faellig_de }} Uhr.\n\n{{ $('Ticketnummer uebernehmen').item.json.kritisch ? 'Da Ihre Schilderung auf ein dringendes Problem hindeutet, hat unsere Teamleitung den Fall direkt uebernommen. Bitte verwenden Sie das betroffene Produkt bis zu unserer Rueckmeldung nicht weiter.' : 'Sie muessen nichts weiter tun. Bitte heben Sie die Ware und die Verpackung bis zur Klaerung auf.' }}\n\nWenn Sie etwas ergaenzen moechten, antworten Sie einfach auf diese Mail und lassen Sie die Ticketnummer im Betreff stehen.\n\nFreundliche Gruesse\nIhr Kundenservice",
+        "options": {}
+      },
+      "id": "mail-bestaetigung",
+      "name": "Eingangsbestaetigung an Kunden",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [2380, 220]
+    }
+  ],
+  "connections": {
+    "Reklamationsformular": {"main": [[{"node": "Angaben pruefen", "type": "main", "index": 0}]]},
+    "Angaben pruefen": {"main": [[{"node": "Angaben vollstaendig?", "type": "main", "index": 0}]]},
+    "Angaben vollstaendig?": {"main": [[{"node": "Schweregrad und Sachgebiet bestimmen", "type": "main", "index": 0}], [{"node": "Rueckfrage an Kunden", "type": "main", "index": 0}]]},
+    "Schweregrad und Sachgebiet bestimmen": {"main": [[{"node": "Eskalationsregeln anwenden", "type": "main", "index": 0}]]},
+    "Eskalationsregeln anwenden": {"main": [[{"node": "Ticket anlegen", "type": "main", "index": 0}]]},
+    "Ticket anlegen": {"main": [[{"node": "Ticketnummer uebernehmen", "type": "main", "index": 0}]]},
+    "Ticketnummer uebernehmen": {"main": [[{"node": "Kritischer Fall?", "type": "main", "index": 0}]]},
+    "Kritischer Fall?": {"main": [[{"node": "Teamleitung sofort eskalieren", "type": "main", "index": 0}], [{"node": "In Standard-Queue einreihen", "type": "main", "index": 0}]]},
+    "Teamleitung sofort eskalieren": {"main": [[{"node": "Eingangsbestaetigung an Kunden", "type": "main", "index": 0}]]},
+    "In Standard-Queue einreihen": {"main": [[{"node": "Eingangsbestaetigung an Kunden", "type": "main", "index": 0}]]}
+  },
+  "settings": {"executionOrder": "v1"},
+  "pinData": {}
+}

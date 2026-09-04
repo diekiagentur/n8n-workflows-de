@@ -1,0 +1,244 @@
+{
+  "name": "Lead automatisch mit Firmendaten anreichern und bewerten",
+  "meta": {
+    "beschreibung": "Nimmt einen neuen Lead per Webhook entgegen, leitet aus der E-Mail-Adresse die Firmendomain ab und trennt Geschaeftsadressen von Freemail-Adressen (gmail.com, gmx.de, web.de und Co. werden als Privatperson markiert). Fuer Firmenadressen holt der Workflow ueber eine Anreicherungs-API Stammdaten nach, laesst die KI Branche und Unternehmensgroesse einordnen und berechnet einen nachvollziehbaren Lead-Score, bevor der Datensatz ins CRM geschrieben wird. Lohnt sich fuer Vertriebsteams, die viele Leads bekommen und die guten schnell erkennen muessen. DSGVO/EU-AI-Act-Hinweis: Die Anreicherung verarbeitet personenbezogene Daten bei Dritten — AV-Vertrag nach Art. 28 DSGVO schliessen; der Score ist eine Priorisierungshilfe fuer den Vertrieb und darf keine automatisierte Einzelentscheidung nach Art. 22 DSGVO ausloesen.",
+    "kategorie": "Vertrieb & Leads",
+    "schwierigkeit": "fortgeschritten",
+    "benoetigt": ["Webhook-Quelle (Formular, CRM, Newsletter)", "Anreicherungs-API fuer Firmendaten", "OpenAI-API (oder Ollama)", "CRM mit REST-API", "SMTP-Postfach"],
+    "quelle": "https://die-ki-agentur.de/n8n-agentur/"
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Lead-Anreicherung und Scoring\n\n**Ablauf:** Neuer Lead per Webhook → E-Mail-Domain extrahieren → Freemailer aussortieren → Firmendaten ueber API nachladen → KI ordnet Branche und Groesse ein → Lead-Score berechnen → CRM. A-Leads gehen zusaetzlich direkt an den Vertrieb.\n\n**Vor dem Start:**\n1. Webhook-URL aus `Neuen Lead empfangen` bei der Lead-Quelle eintragen (POST, JSON mit `email`, optional `name`, `firma`, `telefon`, `nachricht`, `quelle`)\n2. In `Firmendaten abrufen` `HIER_ANREICHERUNGS_API_URL` und `HIER_API_KEY_EINTRAGEN` ersetzen (z. B. Clearbit, Hunter.io, Companyhouse — Anbieter mit EU-Hosting bevorzugen)\n3. OpenAI-Credential waehlen oder den Node auf ein lokales Ollama-Modell umstellen\n4. In `Lead im CRM anlegen` die CRM-URL setzen; Punktlogik im Node `Lead-Score berechnen` an die eigene Zielkundschaft anpassen\n5. AV-Vertraege mit Anreicherungs- und KI-Anbieter; der Score priorisiert nur, er entscheidet nicht\n\n**Fehlertoleranz:** Antwortet die Anreicherungs-API nicht, laeuft der Lead trotzdem weiter — er bekommt dann nur den Score aus den eigenen Formularangaben.\n\n**Betreuung:** https://die-ki-agentur.de/n8n-agentur/",
+        "height": 580,
+        "width": 480
+      },
+      "id": "note-doku",
+      "name": "Kurzanleitung",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-160, 40]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "neuer-lead",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "trigger-webhook",
+      "name": "Neuen Lead empfangen",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [380, 320]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Die E-Mail-Domain ist der guenstigste Firmenschluessel, den ein Lead\n// mitbringt: keine Zusatzabfrage noetig, und sie ist eindeutiger als ein\n// frei getippter Firmenname (\"Mueller GmbH\" vs. \"Müller G.m.b.H.\").\nconst FREEMAILER = [\n  'gmail.com', 'googlemail.com', 'gmx.de', 'gmx.net', 'gmx.at', 'gmx.ch',\n  'web.de', 'freenet.de', 't-online.de', 'outlook.de', 'outlook.com',\n  'hotmail.de', 'hotmail.com', 'live.de', 'yahoo.de', 'yahoo.com',\n  'aol.com', 'icloud.com', 'me.com', 'mail.de', 'posteo.de', 'protonmail.com', 'proton.me'\n];\n// Wegwerfadressen sind kein Privatkunde, sondern meist gar kein Lead —\n// deshalb getrennt gefuehrt und im Score spaeter bestraft.\nconst WEGWERF = ['mailinator.com', 'trashmail.com', 'wegwerfmail.de', '10minutemail.com', 'yopmail.com'];\n\nconst raus = [];\nfor (const eintrag of $input.all()) {\n  const d = eintrag.json.body ?? eintrag.json;\n  const email = String(d.email ?? '').trim().toLowerCase();\n  const domain = email.includes('@') ? email.split('@').pop() : '';\n  // Subdomains wie mail.firma.de auf die Hauptdomain zurueckfuehren, sonst\n  // findet die Anreicherungs-API den Betrieb nicht.\n  const teile = domain.split('.');\n  const hauptdomain = teile.length > 2 && teile[teile.length - 2].length > 3\n    ? teile.slice(-2).join('.')\n    : domain;\n\n  raus.push({\n    json: {\n      name: String(d.name ?? '').trim(),\n      email,\n      telefon: String(d.telefon ?? d.phone ?? '').replace(/[^0-9+]/g, ''),\n      firma_angegeben: String(d.firma ?? d.company ?? '').trim(),\n      nachricht: String(d.nachricht ?? d.message ?? '').trim(),\n      quelle: String(d.quelle ?? 'Unbekannt').trim(),\n      domain,\n      hauptdomain,\n      ist_freemailer: FREEMAILER.includes(domain),\n      ist_wegwerfadresse: WEGWERF.includes(domain),\n      eingegangen_am: new Date().toLocaleDateString('de-DE')\n    }\n  });\n}\nreturn raus;"
+      },
+      "id": "code-domain",
+      "name": "E-Mail-Domain extrahieren",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [600, 320]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {"caseSensitive": true, "version": 2},
+          "conditions": [
+            {
+              "id": "kein-freemailer",
+              "leftValue": "={{ $json.ist_freemailer }}",
+              "rightValue": true,
+              "operator": {"type": "boolean", "operation": "false", "singleValue": true}
+            },
+            {
+              "id": "domain-vorhanden",
+              "leftValue": "={{ $json.hauptdomain }}",
+              "rightValue": "",
+              "operator": {"type": "string", "operation": "notEmpty", "singleValue": true}
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-freemail",
+      "name": "Geschaeftliche Domain?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [820, 320]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://HIER_ANREICHERUNGS_API_URL/v1/firmen",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {"name": "domain", "value": "={{ $json.hauptdomain }}"}
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {"name": "X-Api-Key", "value": "HIER_API_KEY_EINTRAGEN"},
+            {"name": "Accept", "value": "application/json"}
+          ]
+        },
+        "options": {"timeout": 20000}
+      },
+      "id": "http-anreicherung",
+      "name": "Firmendaten abrufen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1040, 180],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "modelId": {"__rl": true, "value": "gpt-4.1-mini", "mode": "list"},
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "Du ordnest deutsche Firmen fuer den B2B-Vertrieb ein. Antworte AUSSCHLIESSLICH mit einem JSON-Objekt, keine Erklaerung, kein Markdown. Felder: branche (string, deutsche Bezeichnung wie 'Maschinenbau', 'Handwerk', 'Kanzlei', 'Handel', 'IT-Dienstleistung', 'Gesundheitswesen', 'Oeffentliche Hand', 'Sonstige'), unternehmensgroesse (string, genau einer von: 'Solo', 'Klein (2-9)', 'Mittel (10-49)', 'Gross (50-249)', 'Konzern (250+)'), mitarbeiter_geschaetzt (number oder null), b2b (boolean), begruendung (string, maximal 20 Woerter). Wenn die Datenlage nicht reicht, setze branche auf 'Sonstige' und unternehmensgroesse auf 'Klein (2-9)' und schreibe das in die Begruendung. Rate nichts hinzu, was nicht in den Daten steht."
+            },
+            {
+              "role": "user",
+              "content": "=Domain: {{ $('E-Mail-Domain extrahieren').item.json.hauptdomain }}\nFirmenname laut Formular: {{ $('E-Mail-Domain extrahieren').item.json.firma_angegeben || 'nicht angegeben' }}\nNachricht des Leads: {{ $('E-Mail-Domain extrahieren').item.json.nachricht || 'keine' }}\n\nDaten der Anreicherungs-API:\n{{ JSON.stringify($json).slice(0, 3000) }}"
+            }
+          ]
+        },
+        "jsonOutput": true,
+        "options": {"temperature": 0}
+      },
+      "id": "ki-einordnen",
+      "name": "Branche und Groesse einordnen",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [1260, 180]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {"id": "typ", "name": "kontakttyp", "value": "Privatperson", "type": "string"},
+            {"id": "branche", "name": "branche", "value": "Privatkunde", "type": "string"},
+            {"id": "groesse", "name": "unternehmensgroesse", "value": "Solo", "type": "string"},
+            {"id": "b2b", "name": "b2b", "value": false, "type": "boolean"},
+            {"id": "grund", "name": "einordnung_begruendung", "value": "=Freemail-Adresse ({{ $json.domain }}) — keine Firmenanreicherung moeglich", "type": "string"}
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "set-privatperson",
+      "name": "Als Privatperson markieren",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1040, 500]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Lead-Score 0-100, bewusst additiv und einzeln begruendet: Der Vertrieb\n// sieht im CRM nicht nur die Zahl, sondern auch, welche Regel wie viele\n// Punkte gegeben hat. Nur so laesst sich die Gewichtung spaeter ehrlich\n// nachjustieren - eine Blackbox-Zahl wuerde nach zwei Wochen ignoriert.\nconst GROESSE_PUNKTE = {\n  'Solo': 5,\n  'Klein (2-9)': 10,\n  'Mittel (10-49)': 25,\n  'Gross (50-249)': 30,\n  'Konzern (250+)': 20   // absichtlich weniger: lange Einkaufsprozesse\n};\n// Wunschbranchen des eigenen Betriebs - hier anpassen, das ist der\n// wirksamste Hebel des ganzen Workflows.\nconst WUNSCHBRANCHEN = ['Maschinenbau', 'Handwerk', 'IT-Dienstleistung', 'Handel'];\n\nconst raus = [];\nfor (const eintrag of $input.all()) {\n  const basis = $('E-Mail-Domain extrahieren').item.json;\n  const j = eintrag.json;\n  // Der KI-Node liefert je nach Version message.content oder das Objekt\n  // direkt; der Freemail-Zweig liefert bereits fertige Felder.\n  const ki = j.message?.content ?? j;\n\n  const branche = String(ki.branche ?? j.branche ?? 'Sonstige');\n  const groesse = String(ki.unternehmensgroesse ?? j.unternehmensgroesse ?? 'Klein (2-9)');\n  const istB2B = Boolean(ki.b2b ?? j.b2b ?? false);\n\n  let punkte = 0;\n  const begruendung = [];\n  const addiere = (p, text) => { punkte += p; begruendung.push((p >= 0 ? '+' : '') + p + ' ' + text); };\n\n  if (istB2B) addiere(15, 'Geschaeftskunde');\n  else addiere(0, 'Privatkunde oder B2B unklar');\n\n  addiere(GROESSE_PUNKTE[groesse] ?? 5, 'Unternehmensgroesse: ' + groesse);\n\n  if (WUNSCHBRANCHEN.includes(branche)) addiere(20, 'Wunschbranche: ' + branche);\n  else addiere(5, 'Branche ausserhalb des Kernsegments: ' + branche);\n\n  // Wer eine Telefonnummer hinterlaesst, rechnet mit einem Rueckruf -\n  // in der Praxis das staerkste einzelne Kaufsignal im Formular.\n  if (basis.telefon && basis.telefon.length >= 7) addiere(15, 'Telefonnummer hinterlassen');\n\n  const laenge = (basis.nachricht || '').length;\n  if (laenge >= 200) addiere(15, 'ausfuehrliche Anfrage (' + laenge + ' Zeichen)');\n  else if (laenge >= 50) addiere(8, 'konkrete Anfrage (' + laenge + ' Zeichen)');\n  else addiere(0, 'kaum Text in der Anfrage');\n\n  // Kaufabsicht im Klartext schlaegt jede Firmenkennzahl.\n  const signale = ['angebot', 'preis', 'kosten', 'anfrage', 'kaufen', 'beauftragen', 'termin', 'beratung'];\n  const treffer = signale.filter(s => (basis.nachricht || '').toLowerCase().includes(s));\n  if (treffer.length) addiere(Math.min(15, treffer.length * 5), 'Kaufsignal(e): ' + treffer.join(', '));\n\n  if (basis.ist_wegwerfadresse) addiere(-40, 'Wegwerf-Mailadresse');\n  if (!basis.name) addiere(-10, 'kein Name angegeben');\n\n  punkte = Math.max(0, Math.min(100, punkte));\n  const prioritaet = punkte >= 60 ? 'A' : punkte >= 35 ? 'B' : 'C';\n\n  raus.push({\n    json: {\n      ...basis,\n      kontakttyp: j.kontakttyp ?? (istB2B ? 'Firma' : 'Unklar'),\n      branche,\n      unternehmensgroesse: groesse,\n      mitarbeiter_geschaetzt: ki.mitarbeiter_geschaetzt ?? null,\n      b2b: istB2B,\n      einordnung_begruendung: ki.begruendung ?? j.einordnung_begruendung ?? '',\n      lead_score: punkte,\n      prioritaet,\n      score_begruendung: begruendung.join('; ')\n    }\n  });\n}\nreturn raus;"
+      },
+      "id": "code-score",
+      "name": "Lead-Score berechnen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1480, 320]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://HIER_CRM_API_URL/v1/leads",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {"name": "X-Api-Key", "value": "HIER_CRM_API_KEY_EINTRAGEN"},
+            {"name": "Content-Type", "value": "application/json"}
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  name: $json.name,\n  email: $json.email,\n  telefon: $json.telefon,\n  firma: $json.firma_angegeben,\n  domain: $json.hauptdomain,\n  kontakttyp: $json.kontakttyp,\n  branche: $json.branche,\n  unternehmensgroesse: $json.unternehmensgroesse,\n  lead_score: $json.lead_score,\n  prioritaet: $json.prioritaet,\n  score_begruendung: $json.score_begruendung,\n  quelle: $json.quelle,\n  nachricht: $json.nachricht,\n  eingegangen_am: $json.eingegangen_am\n}) }}",
+        "options": {"timeout": 15000}
+      },
+      "id": "http-crm",
+      "name": "Lead im CRM anlegen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1700, 320]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {"caseSensitive": true, "version": 2},
+          "conditions": [
+            {
+              "id": "prio-a",
+              "leftValue": "={{ $('Lead-Score berechnen').item.json.prioritaet }}",
+              "rightValue": "A",
+              "operator": {"type": "string", "operation": "equals"}
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-prioritaet",
+      "name": "Prioritaet A?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1920, 320]
+    },
+    {
+      "parameters": {
+        "fromEmail": "HIER_ABSENDER_MAIL_EINTRAGEN",
+        "toEmail": "HIER_VERTRIEB_MAIL_EINTRAGEN",
+        "subject": "=A-Lead ({{ $('Lead-Score berechnen').item.json.lead_score }} Punkte): {{ $('Lead-Score berechnen').item.json.firma_angegeben || $('Lead-Score berechnen').item.json.hauptdomain }}",
+        "emailFormat": "text",
+        "text": "=Neuer Lead mit hoher Prioritaet — bitte heute noch anrufen.\n\nName: {{ $('Lead-Score berechnen').item.json.name || '-' }}\nFirma: {{ $('Lead-Score berechnen').item.json.firma_angegeben || $('Lead-Score berechnen').item.json.hauptdomain }}\nBranche: {{ $('Lead-Score berechnen').item.json.branche }}\nGroesse: {{ $('Lead-Score berechnen').item.json.unternehmensgroesse }}\nE-Mail: {{ $('Lead-Score berechnen').item.json.email }}\nTelefon: {{ $('Lead-Score berechnen').item.json.telefon || '-' }}\nQuelle: {{ $('Lead-Score berechnen').item.json.quelle }}\n\nAnfrage:\n{{ $('Lead-Score berechnen').item.json.nachricht || '-' }}\n\nScore {{ $('Lead-Score berechnen').item.json.lead_score }}/100 setzt sich zusammen aus:\n{{ $('Lead-Score berechnen').item.json.score_begruendung }}\n\nHinweis: Score und Brancheneinordnung sind KI-gestuetzt und dienen der Priorisierung — bitte vor dem Gespraech kurz gegenpruefen.",
+        "options": {}
+      },
+      "id": "mail-vertrieb",
+      "name": "Vertrieb sofort informieren",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [2140, 220]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {"id": "ablage", "name": "bearbeitung", "value": "=Im Nurturing belassen (Prioritaet {{ $('Lead-Score berechnen').item.json.prioritaet }}) — Newsletter-Strecke statt Direktansprache", "type": "string"},
+            {"id": "wv", "name": "wiedervorlage_in_tagen", "value": "14", "type": "number"}
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "set-nurturing",
+      "name": "Im Nurturing belassen",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [2140, 440]
+    }
+  ],
+  "connections": {
+    "Neuen Lead empfangen": {"main": [[{"node": "E-Mail-Domain extrahieren", "type": "main", "index": 0}]]},
+    "E-Mail-Domain extrahieren": {"main": [[{"node": "Geschaeftliche Domain?", "type": "main", "index": 0}]]},
+    "Geschaeftliche Domain?": {"main": [[{"node": "Firmendaten abrufen", "type": "main", "index": 0}], [{"node": "Als Privatperson markieren", "type": "main", "index": 0}]]},
+    "Firmendaten abrufen": {"main": [[{"node": "Branche und Groesse einordnen", "type": "main", "index": 0}]]},
+    "Branche und Groesse einordnen": {"main": [[{"node": "Lead-Score berechnen", "type": "main", "index": 0}]]},
+    "Als Privatperson markieren": {"main": [[{"node": "Lead-Score berechnen", "type": "main", "index": 0}]]},
+    "Lead-Score berechnen": {"main": [[{"node": "Lead im CRM anlegen", "type": "main", "index": 0}]]},
+    "Lead im CRM anlegen": {"main": [[{"node": "Prioritaet A?", "type": "main", "index": 0}]]},
+    "Prioritaet A?": {"main": [[{"node": "Vertrieb sofort informieren", "type": "main", "index": 0}], [{"node": "Im Nurturing belassen", "type": "main", "index": 0}]]}
+  },
+  "settings": {"executionOrder": "v1"},
+  "pinData": {}
+}
