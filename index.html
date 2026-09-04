@@ -1,0 +1,488 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>n8n-Workflows auf Deutsch — 25 fertige Vorlagen zum Import</title>
+<meta name="description" content="25 einsatzfertige n8n-Workflows auf Deutsch: Vertrieb, Buchhaltung, Kundenservice, DSGVO und EU AI Act. Jede Vorlage mit Prüflogik, Kommentaren und Hinweis auf die rechtlichen Fallstricke. Kostenlos, MIT-Lizenz.">
+<link rel="canonical" href="https://diekiagentur.github.io/n8n-workflows-de/">
+<meta property="og:title" content="n8n-Workflows auf Deutsch — 25 fertige Vorlagen zum Import">
+<meta property="og:description" content="25 einsatzfertige n8n-Workflows auf Deutsch: Vertrieb, Buchhaltung, Kundenservice, DSGVO und EU AI Act. Jede Vorlage mit Prüflogik, Kommentaren und Hinweis auf die rechtlichen Fallstricke. Kostenlos, MIT-Lizenz.">
+<meta property="og:type" content="website">
+<meta property="og:image" content="https://diekiagentur.github.io/n8n-workflows-de/social-preview.jpg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap">
+<style>
+*,*::before,*::after{box-sizing:border-box}
+:root{--blau:#2563EB;--blau-d:#1D4ED8;--tinte:#0F172A;--grau:#475569;
+      --linie:#E2E8F0;--flaeche:#F8FAFC;--weiss:#fff}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--weiss);color:var(--tinte);
+     font:400 17px/1.65 Poppins,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+a{color:var(--blau-d)}
+.wrap{max-width:1120px;margin:0 auto;padding:0 20px}
+header{background:var(--flaeche);border-bottom:1px solid var(--linie);padding:56px 0 44px}
+h1{font-size:clamp(28px,4.2vw,42px);line-height:1.2;margin:0 0 14px;letter-spacing:-.02em}
+.lead{font-size:19px;color:var(--grau);margin:0 0 22px;max-width:62ch}
+.marken{display:flex;flex-wrap:wrap;gap:10px;align-items:center;font-size:14px;color:var(--grau)}
+.knopf{display:inline-block;background:var(--blau);color:#fff;text-decoration:none;
+       padding:11px 20px;border-radius:8px;font-weight:600;font-size:15px}
+.knopf:hover{background:var(--blau-d)}
+.knopf.leer{background:transparent;color:var(--blau-d);border:1px solid var(--linie)}
+.werkzeug{display:flex;flex-wrap:wrap;gap:10px;margin:32px 0 8px}
+#suche{flex:1 1 260px;min-width:0;padding:11px 14px;border:1px solid var(--linie);
+       border-radius:8px;font:inherit;font-size:15px}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0 34px}
+.chip{border:1px solid var(--linie);background:var(--weiss);color:var(--grau);
+      padding:7px 13px;border-radius:999px;font:inherit;font-size:14px;cursor:pointer}
+.chip[aria-pressed=true]{background:var(--blau);border-color:var(--blau);color:#fff}
+.gitter{display:grid;gap:22px;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));
+        padding-bottom:56px;margin:0;list-style:none}
+.karte{border:1px solid var(--linie);border-radius:12px;overflow:hidden;
+       display:flex;flex-direction:column;background:var(--weiss)}
+.karte img{width:100%;height:auto;aspect-ratio:16/9;object-fit:cover;display:block;background:var(--flaeche)}
+.karte .inhalt{padding:18px 20px 20px;display:flex;flex-direction:column;flex:1}
+.kat{font-size:13px;color:var(--blau-d);font-weight:600;margin:0 0 6px}
+.karte h2{font-size:19px;line-height:1.35;margin:0 0 10px;letter-spacing:-.01em}
+.karte p{font-size:15px;color:var(--grau);margin:0 0 14px}
+.meta{font-size:13px;color:var(--grau);margin:0 0 16px}
+.aktionen{margin-top:auto;display:flex;flex-wrap:wrap;gap:9px}
+.aktionen a{font-size:14px;text-decoration:none;padding:8px 14px;border-radius:7px;
+            border:1px solid var(--linie);color:var(--blau-d);font-weight:500}
+.aktionen a.haupt{background:var(--blau);border-color:var(--blau);color:#fff}
+.leerzustand{color:var(--grau);padding:24px 0}
+footer{border-top:1px solid var(--linie);background:var(--flaeche);padding:36px 0;
+       font-size:15px;color:var(--grau)}
+footer p{margin:0 0 10px;max-width:70ch}
+@media (max-width:600px){header{padding:38px 0 30px}body{font-size:16px}}
+</style>
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "CollectionPage", "name": "n8n-Workflows auf Deutsch — 25 fertige Vorlagen zum Import", "description": "25 einsatzfertige n8n-Workflows auf Deutsch: Vertrieb, Buchhaltung, Kundenservice, DSGVO und EU AI Act. Jede Vorlage mit Prüflogik, Kommentaren und Hinweis auf die rechtlichen Fallstricke. Kostenlos, MIT-Lizenz.", "url": "https://diekiagentur.github.io/n8n-workflows-de/", "license": "https://opensource.org/licenses/MIT", "isBasedOn": "https://github.com/diekiagentur/n8n-workflows-de", "creator": {"@type": "Organization", "name": "die-ki-agentur.de", "url": "https://die-ki-agentur.de"}, "hasPart": [{"@type": "SoftwareSourceCode", "name": "Offene Angebote gestaffelt nachfassen", "programmingLanguage": "n8n", "codeRepository": "https://github.com/diekiagentur/n8n-workflows-de", "url": "https://die-ki-agentur.de/n8n-workflows/angebot-nachfassen-automatisch/"}, {"@type": "SoftwareSourceCode", "name": "Leads mit Firmendaten anreichern und bewerten", "programmingLanguage": "n8n", "codeRepository": "https://github.com/diekiagentur/n8n-workflows-de", "url": "https://die-ki-agentur.de/n8n-workflows/lead-anreicherung-firmendaten/"}, {"@type": "SoftwareSourceCode", "name": "Messe-Visitenkarten per Foto digitalisieren", "programmingLanguage": "n8n", "codeRepository": "https://github.com/diekiagentur/n8n-workflows-de", "url": "https://die-ki-agentur.de/n8n-workflows/messe-visitenkarten-digitalisieren/"}, {"@type": "SoftwareSourceCode", "name": "Webformular-Anfragen prüfen und ins CRM übernehmen", "programmingLanguage": "n8n", "codeRepository": "https://github.com/diekiagentur/n8n-workflows-de", "url": "https://die-ki-agentur.de/n8n-workflows/webformular-lead-ins-crm/"}, {"@type": "SoftwareSourceCode", "name": "Belege vorkontieren und DATEV-CSV erzeugen", "programmingLanguage": "n8n", "codeRepository": "https://github.com/diekiagentur/n8n-workflows-de", "url": "https://die-ki-agentur.de/n8n-workflows/belege-vorkontieren/"}, {"@type": "SoftwareSourceCode", "name": "Eingangsrechnungen aus E-Mail auslesen", "programmingLanguage": "n8n", "codeRepository": "https://github.com/diekiagentur/n8n-workflows-de", "url": "https://die-ki-agentur.de/n8n-workflows/eingangsrechnungen-auslesen/"}, {"@type": "SoftwareSourceCode", "name": "Mahnwesen dreistufig mit Betragssperre", "programmingLanguage": "n8n", "codeRepository": "https://github.com/diekiagentur/n8n-workflows-de", "url": "https://die-ki-agentur.de/n8n-workflows/mahnwesen-gestaffelt/"}, {"@type": "SoftwareSourceCode", "name": "Newsletter-Entwurf aus Blogartikeln erzeugen", "programmingLanguage": "n8n", "codeRepository": "https://github.com/diekiagentur/n8n-workflows-de", "url": "https://die-ki-agentur.de/n8n-workflows/newsletter-aus-blogartikel/"}, {"@type": "SoftwareSourceCode", "name": "Posteingang sortieren, Entwürfe vorbereiten", "programmingLanguage": "n8n", "codeRepository": "https://github.com/diekiagentur/n8n-workflows-de", "url": "https://die-ki-agentur.de/n8n-workflows/posteingang-sortieren-entwuerfe/"}, {"@type": "SoftwareSourceCode", "name": "Ausschreibungen prüfen und bewerten", "programmingLanguage": "n8n", "codeRepository": "https://github.com/diekiagentur/n8n-workflows-de", "url": "https://die-ki-agentur.de/n8n-workflows/angebots-agent-ausschreibungen/"}, {"@type": "SoftwareSourceCode", "name": "Firmenwissen als RAG-Index aufbauen", "programmingLanguage": "n8n", "codeRepository": "https://github.com/diekiagentur/n8n-workflows-de", "url": "https://die-ki-agentur.de/n8n-workflows/firmenwissen-rag-aufbauen/"}, {"@type": "SoftwareSourceCode", "name": "KI-Anfragen über ein lokales Modell beantworten", "programmingLanguage": "n8n", "codeRepository": "https://github.com/diekiagentur/n8n-workflows-de", "url": "https://die-ki-agentur.de/n8n-workflows/lokale-ki-dsgvo-konform/"}, {"@type": "SoftwareSourceCode", "name": "Wissens-Assistent mit Quellenangabe", "programmingLanguage": "n8n", "codeRepository": "https://github.com/diekiagentur/n8n-workflows-de", "url": "https://die-ki-agentur.de/n8n-workflows/wissens-assistent-abfragen/"}, {"@type": "SoftwareSourceCode", "name": "SEO-Content-Briefing aus SERP-Analyse", "programmingLanguage": "n8n", "codeRepository": "https://github.com/diekiagentur/n8n-workflows-de", "url": "https://die-ki-agentur.de/n8n-workflows/seo-content-briefing/"}, {"@type": "SoftwareSourceCode", "name": "Social-Media-Beiträge aus Blogartikeln", "programmingLanguage": "n8n", "codeRepository": "https://github.com/diekiagentur/n8n-workflows-de", "url": "https://die-ki-agentur.de/n8n-workflows/social-media-aus-blogartikel/"}, {"@type": "SoftwareSourceCode", "name": "FAQ-Chatbot mit eigener Wissensbasis", "programmingLanguage": "n8n", "codeRepository": "https://github.com/diekiagentur/n8n-workflows-de", "url": "https://die-ki-agentur.de/n8n-workflows/faq-chatbot-mit-wissensbasis/"}, {"@type": "SoftwareSourceCode", "name": "Reklamationen erfassen und eskalieren", "programmingLanguage": "n8n", "codeRepository": "https://github.com/diekiagentur/n8n-workflows-de", "url": "https://die-ki-agentur.de/n8n-workflows/reklamation-erfassen-eskalieren/"}, {"@type": "SoftwareSourceCode", "name": "KPI-Wochenbericht für die Geschäftsführung", "programmingLanguage": "n8n", "codeRepository": "https://github.com/diekiagentur/n8n-workflows-de", "url": "https://die-ki-agentur.de/n8n-workflows/kpi-wochenbericht/"}, {"@type": "SoftwareSourceCode", "name": "Wettbewerbspreise mit Schwellenwert beobachten", "programmingLanguage": "n8n", "codeRepository": "https://github.com/diekiagentur/n8n-workflows-de", "url": "https://die-ki-agentur.de/n8n-workflows/preise-wettbewerb-beobachten/"}, {"@type": "SoftwareSourceCode", "name": "DSGVO-Auskunftsersuchen strukturiert bearbeiten", "programmingLanguage": "n8n", "codeRepository": "https://github.com/diekiagentur/n8n-workflows-de", "url": "https://die-ki-agentur.de/n8n-workflows/auskunftsersuchen-bearbeiten/"}, {"@type": "SoftwareSourceCode", "name": "KI-Inventar nach EU AI Act pflegen", "programmingLanguage": "n8n", "codeRepository": "https://github.com/diekiagentur/n8n-workflows-de", "url": "https://die-ki-agentur.de/n8n-workflows/ki-inventar-pflegen/"}, {"@type": "SoftwareSourceCode", "name": "Kundenanfragen zu Terminvorschlägen", "programmingLanguage": "n8n", "codeRepository": "https://github.com/diekiagentur/n8n-workflows-de", "url": "https://die-ki-agentur.de/n8n-workflows/anfrage-zu-terminvorschlag/"}, {"@type": "SoftwareSourceCode", "name": "Wartungstermine und Prüffristen nachhalten", "programmingLanguage": "n8n", "codeRepository": "https://github.com/diekiagentur/n8n-workflows-de", "url": "https://die-ki-agentur.de/n8n-workflows/wartungstermine-erinnern/"}, {"@type": "SoftwareSourceCode", "name": "Bewerbungen strukturiert aufbereiten", "programmingLanguage": "n8n", "codeRepository": "https://github.com/diekiagentur/n8n-workflows-de", "url": "https://die-ki-agentur.de/n8n-workflows/bewerbung-vorpruefen/"}, {"@type": "SoftwareSourceCode", "name": "Onboarding-Checkliste automatisch erzeugen", "programmingLanguage": "n8n", "codeRepository": "https://github.com/diekiagentur/n8n-workflows-de", "url": "https://die-ki-agentur.de/n8n-workflows/onboarding-checkliste/"}]}</script>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <h1>25 n8n-Workflows auf Deutsch</h1>
+    <p class="lead">Fertige Vorlagen zum Import in n8n — Vertrieb, Buchhaltung, Kundenservice,
+      DSGVO und EU AI Act. Jeder Workflow ist auf Importierbarkeit geprüft, im Klartext
+      kommentiert und benennt die Stellen, an denen ein Mensch entscheiden muss.
+      Kostenlos unter MIT-Lizenz.</p>
+    <div class="marken">
+      <a class="knopf" href="https://github.com/diekiagentur/n8n-workflows-de">Repository auf GitHub</a>
+      <a class="knopf leer" href="https://die-ki-agentur.de/n8n-workflows/">Anleitungen auf die-ki-agentur.de</a>
+    </div>
+  </div>
+</header>
+<main class="wrap">
+  <div class="werkzeug">
+    <label class="visually-hidden" for="suche" hidden>Workflows durchsuchen</label>
+    <input id="suche" type="search" placeholder="Suchen — z. B. Rechnung, DSGVO, Ollama"
+           autocomplete="off">
+  </div>
+  <div class="chips">
+      <button class="chip" type="button" aria-pressed="false" data-kat="DSGVO &amp; EU AI Act">DSGVO &amp; EU AI Act</button>
+      <button class="chip" type="button" aria-pressed="false" data-kat="Daten &amp; Reporting">Daten &amp; Reporting</button>
+      <button class="chip" type="button" aria-pressed="false" data-kat="E-Mail &amp; Kommunikation">E-Mail &amp; Kommunikation</button>
+      <button class="chip" type="button" aria-pressed="false" data-kat="Handwerk &amp; Produktion">Handwerk &amp; Produktion</button>
+      <button class="chip" type="button" aria-pressed="false" data-kat="KI-Agenten &amp; Firmenwissen">KI-Agenten &amp; Firmenwissen</button>
+      <button class="chip" type="button" aria-pressed="false" data-kat="Kundenservice">Kundenservice</button>
+      <button class="chip" type="button" aria-pressed="false" data-kat="Marketing &amp; Content">Marketing &amp; Content</button>
+      <button class="chip" type="button" aria-pressed="false" data-kat="Personal &amp; HR">Personal &amp; HR</button>
+      <button class="chip" type="button" aria-pressed="false" data-kat="Rechnungen &amp; Buchhaltung">Rechnungen &amp; Buchhaltung</button>
+      <button class="chip" type="button" aria-pressed="false" data-kat="Vertrieb &amp; Leads">Vertrieb &amp; Leads</button>
+  </div>
+  <ul class="gitter">
+    <li class="karte" data-kat="Vertrieb &amp; Leads" data-text="offene angebote gestaffelt nachfassen prueft jeden morgen die offenen angebote in einer google-sheets-liste, berechnet ihr alter und faellt daraus die nachfassentscheidung: nach 3 tagen eine freundliche erinnerung, nach 10 tagen eine zweite nachfrage, nach 21 tagen ein internes signal an den vertrieb statt einer weiteren mail. die texte schreibt die ki sachlich und ohne verkaufsdruck; die erreichte stufe wird ins sheet zurueckgeschrieben, damit kein kunde zweimal dieselbe mail bekommt. lohnt sich fuer handwerk, agenturen und maschinenbau, wo angebote regelmaessig unbeantwortet liegen bleiben. dsgvo/eu-ai-act-hinweis: kundendaten gehen an den ki-anbieter — av-vertrag nach art. 28 dsgvo schliessen oder ein lokales modell (ollama) nutzen; die mails werden vom vertrieb verantwortet und sollten vor dem scharfschalten stichprobenartig gelesen werden. google sheets openai-api (oder ollama) smtp-postfach">
+      <img src="thumbnails/angebot-nachfassen-automatisch.jpg" alt="Offene Angebote gestaffelt nachfassen" loading="lazy" width="1200" height="675">
+      <div class="inhalt">
+        <p class="kat">Vertrieb &amp; Leads</p>
+        <h2>Offene Angebote gestaffelt nachfassen</h2>
+        <p>Prueft jeden Morgen die offenen Angebote in einer Google-Sheets-Liste, berechnet ihr Alter und faellt daraus die Nachfassentscheidung: nach 3 Tagen eine freundliche Erinnerung, nach 10 Tagen eine zweite Nachfrage, nach 21 …</p>
+        <p class="meta">9 Nodes · mittel · benötigt: Google Sheets, OpenAI-API (oder Ollama), SMTP-Postfach</p>
+        <div class="aktionen">
+          <a class="haupt" href="https://raw.githubusercontent.com/diekiagentur/n8n-workflows-de/main/workflows/01-vertrieb-leads/angebot-nachfassen-automatisch.json" download>JSON laden</a>
+          <a href="https://die-ki-agentur.de/n8n-workflows/angebot-nachfassen-automatisch/">Anleitung</a>
+          <a href="https://github.com/diekiagentur/n8n-workflows-de/blob/main/workflows/01-vertrieb-leads/angebot-nachfassen-automatisch.json">Auf GitHub</a>
+        </div>
+      </div>
+    </li>
+    <li class="karte" data-kat="Vertrieb &amp; Leads" data-text="leads mit firmendaten anreichern und bewerten nimmt einen neuen lead per webhook entgegen, leitet aus der e-mail-adresse die firmendomain ab und trennt geschaeftsadressen von freemail-adressen (gmail.com, gmx.de, web.de und co. werden als privatperson markiert). fuer firmenadressen holt der workflow ueber eine anreicherungs-api stammdaten nach, laesst die ki branche und unternehmensgroesse einordnen und berechnet einen nachvollziehbaren lead-score, bevor der datensatz ins crm geschrieben wird. lohnt sich fuer vertriebsteams, die viele leads bekommen und die guten schnell erkennen muessen. dsgvo/eu-ai-act-hinweis: die anreicherung verarbeitet personenbezogene daten bei dritten — av-vertrag nach art. 28 dsgvo schliessen; der score ist eine priorisierungshilfe fuer den vertrieb und darf keine automatisierte einzelentscheidung nach art. 22 dsgvo ausloesen. webhook-quelle (formular, crm, newsletter) anreicherungs-api fuer firmendaten openai-api (oder ollama) crm mit rest-api smtp-postfach">
+      <img src="thumbnails/lead-anreicherung-firmendaten.jpg" alt="Leads mit Firmendaten anreichern und bewerten" loading="lazy" width="1200" height="675">
+      <div class="inhalt">
+        <p class="kat">Vertrieb &amp; Leads</p>
+        <h2>Leads mit Firmendaten anreichern und bewerten</h2>
+        <p>Nimmt einen neuen Lead per Webhook entgegen, leitet aus der E-Mail-Adresse die Firmendomain ab und trennt Geschaeftsadressen von Freemail-Adressen (gmail.com, gmx.de, web.de und Co. werden als Privatperson markiert). Fuer …</p>
+        <p class="meta">11 Nodes · fortgeschritten · benötigt: Webhook-Quelle (Formular, CRM, Newsletter), Anreicherungs-API fuer Firmendaten, OpenAI-API (oder Ollama), CRM mit REST-API, SMTP-Postfach</p>
+        <div class="aktionen">
+          <a class="haupt" href="https://raw.githubusercontent.com/diekiagentur/n8n-workflows-de/main/workflows/01-vertrieb-leads/lead-anreicherung-firmendaten.json" download>JSON laden</a>
+          <a href="https://die-ki-agentur.de/n8n-workflows/lead-anreicherung-firmendaten/">Anleitung</a>
+          <a href="https://github.com/diekiagentur/n8n-workflows-de/blob/main/workflows/01-vertrieb-leads/lead-anreicherung-firmendaten.json">Auf GitHub</a>
+        </div>
+      </div>
+    </li>
+    <li class="karte" data-kat="Vertrieb &amp; Leads" data-text="messe-visitenkarten per foto digitalisieren der aussendienst fotografiert eine visitenkarte und laedt sie ueber ein n8n-formular hoch; die ki liest name, firma, position, e-mail und telefon aus dem bild, eine plausibilitaetspruefung kontrolliert mailformat und telefonnummer, und der kontakt landet mitsamt messe- und gespraechsnotiz im crm. anschliessend geht eine kurze dankes-mail an den kontakt. lohnt sich fuer jeden betrieb, bei dem nach einer messe ein stapel karten liegen bleibt. dsgvo-hinweis: eine visitenkarte allein ist keine einwilligung in werbung — das formular fragt die im gespraech erteilte einwilligung zur kontaktaufnahme ausdruecklich ab und verwirft die karte ohne sie; ausserdem av-vertrag nach art. 28 dsgvo mit dem ki-anbieter (oder lokales vision-modell) und information nach art. 13 dsgvo in der dankes-mail. openai-api mit vision (oder lokales vision-modell) crm mit rest-api smtp-postfach">
+      <img src="thumbnails/messe-visitenkarten-digitalisieren.jpg" alt="Messe-Visitenkarten per Foto digitalisieren" loading="lazy" width="1200" height="675">
+      <div class="inhalt">
+        <p class="kat">Vertrieb &amp; Leads</p>
+        <h2>Messe-Visitenkarten per Foto digitalisieren</h2>
+        <p>Der Aussendienst fotografiert eine Visitenkarte und laedt sie ueber ein n8n-Formular hoch; die KI liest Name, Firma, Position, E-Mail und Telefon aus dem Bild, eine Plausibilitaetspruefung kontrolliert Mailformat und …</p>
+        <p class="meta">10 Nodes · mittel · benötigt: OpenAI-API mit Vision (oder lokales Vision-Modell), CRM mit REST-API, SMTP-Postfach</p>
+        <div class="aktionen">
+          <a class="haupt" href="https://raw.githubusercontent.com/diekiagentur/n8n-workflows-de/main/workflows/01-vertrieb-leads/messe-visitenkarten-digitalisieren.json" download>JSON laden</a>
+          <a href="https://die-ki-agentur.de/n8n-workflows/messe-visitenkarten-digitalisieren/">Anleitung</a>
+          <a href="https://github.com/diekiagentur/n8n-workflows-de/blob/main/workflows/01-vertrieb-leads/messe-visitenkarten-digitalisieren.json">Auf GitHub</a>
+        </div>
+      </div>
+    </li>
+    <li class="karte" data-kat="Vertrieb &amp; Leads" data-text="webformular-anfragen prüfen und ins crm übernehmen nimmt anfragen aus dem kontakt- oder angebotsformular der website per webhook entgegen, prueft die pflichtfelder, gleicht die e-mail-adresse gegen bestehende crm-kontakte ab und legt entweder einen neuen lead an oder haengt eine notiz an den vorhandenen kontakt. danach gehen eine eingangsbestaetigung an den interessenten und eine benachrichtigung an den vertrieb raus; faellt die crm-schnittstelle aus, wird die anfrage nicht verworfen, sondern als stoerung gemeldet. lohnt sich fuer jeden betrieb, bei dem formularanfragen bisher per hand ins crm getippt werden. dsgvo-hinweis: die formulardaten sind personenbezogen — zweck und speicherdauer in der datenschutzerklaerung nennen und mit dem crm-anbieter einen av-vertrag nach art. 28 dsgvo schliessen. webformular mit webhook-ziel crm mit rest-api smtp-postfach">
+      <img src="thumbnails/webformular-lead-ins-crm.jpg" alt="Webformular-Anfragen prüfen und ins CRM übernehmen" loading="lazy" width="1200" height="675">
+      <div class="inhalt">
+        <p class="kat">Vertrieb &amp; Leads</p>
+        <h2>Webformular-Anfragen prüfen und ins CRM übernehmen</h2>
+        <p>Nimmt Anfragen aus dem Kontakt- oder Angebotsformular der Website per Webhook entgegen, prueft die Pflichtfelder, gleicht die E-Mail-Adresse gegen bestehende CRM-Kontakte ab und legt entweder einen neuen Lead an oder haengt …</p>
+        <p class="meta">12 Nodes · mittel · benötigt: Webformular mit Webhook-Ziel, CRM mit REST-API, SMTP-Postfach</p>
+        <div class="aktionen">
+          <a class="haupt" href="https://raw.githubusercontent.com/diekiagentur/n8n-workflows-de/main/workflows/01-vertrieb-leads/webformular-lead-ins-crm.json" download>JSON laden</a>
+          <a href="https://die-ki-agentur.de/n8n-workflows/webformular-lead-ins-crm/">Anleitung</a>
+          <a href="https://github.com/diekiagentur/n8n-workflows-de/blob/main/workflows/01-vertrieb-leads/webformular-lead-ins-crm.json">Auf GitHub</a>
+        </div>
+      </div>
+    </li>
+    <li class="karte" data-kat="Rechnungen &amp; Buchhaltung" data-text="belege vorkontieren und datev-csv erzeugen holt neue belege aus einem google-drive-ordner, extrahiert den pdf-text und laesst die ki ein skr03-konto, eine kostenstelle und einen buchungstext samt konfidenzwert vorschlagen. nur vorschlaege mit einer konfidenz ueber 0,8 und bestandener rechenpruefung werden automatisch vorkontiert und als datev-tauglicher buchungsstapel (csv) an den steuerberater geschickt - alles andere landet in einer pruefliste. lohnt sich fuer betriebe mit 50 bis 500 belegen im monat, die heute jeden beleg von hand kontieren. dsgvo- und eu-ai-act-hinweis: belege enthalten regelmaessig personenbezogene daten, daher av-vertrag mit dem ki-anbieter schliessen oder ein lokales modell (ollama) nutzen. die kontierung ist ein vorschlag der ki und ersetzt weder die pruefung durch den steuerberater noch die aufbewahrung der originalbelege nach gobd. google drive openai-api (oder ollama) google sheets smtp-postfach">
+      <img src="thumbnails/belege-vorkontieren.jpg" alt="Belege vorkontieren und DATEV-CSV erzeugen" loading="lazy" width="1200" height="675">
+      <div class="inhalt">
+        <p class="kat">Rechnungen &amp; Buchhaltung</p>
+        <h2>Belege vorkontieren und DATEV-CSV erzeugen</h2>
+        <p>Holt neue Belege aus einem Google-Drive-Ordner, extrahiert den PDF-Text und laesst die KI ein SKR03-Konto, eine Kostenstelle und einen Buchungstext samt Konfidenzwert vorschlagen. Nur Vorschlaege mit einer Konfidenz ueber 0,8 …</p>
+        <p class="meta">12 Nodes · fortgeschritten · benötigt: Google Drive, OpenAI-API (oder Ollama), Google Sheets, SMTP-Postfach</p>
+        <div class="aktionen">
+          <a class="haupt" href="https://raw.githubusercontent.com/diekiagentur/n8n-workflows-de/main/workflows/02-rechnungen-buchhaltung/belege-vorkontieren.json" download>JSON laden</a>
+          <a href="https://die-ki-agentur.de/n8n-workflows/belege-vorkontieren/">Anleitung</a>
+          <a href="https://github.com/diekiagentur/n8n-workflows-de/blob/main/workflows/02-rechnungen-buchhaltung/belege-vorkontieren.json">Auf GitHub</a>
+        </div>
+      </div>
+    </li>
+    <li class="karte" data-kat="Rechnungen &amp; Buchhaltung" data-text="eingangsrechnungen aus e-mail auslesen holt pdf-rechnungen aus einem imap-postfach, liest rechnungsnummer, datum, betrag, ust und lieferant per ki aus, legt sie strukturiert in google sheets ab und meldet unstimmigkeiten. dsgvo-hinweis: bei personenbezogenen daten in rechnungen einen av-vertrag mit dem ki-anbieter schliessen oder ein lokales modell (ollama) verwenden. imap-postfach openai-api (oder ollama) google sheets">
+      <img src="thumbnails/eingangsrechnungen-auslesen.jpg" alt="Eingangsrechnungen aus E-Mail auslesen" loading="lazy" width="1200" height="675">
+      <div class="inhalt">
+        <p class="kat">Rechnungen &amp; Buchhaltung</p>
+        <h2>Eingangsrechnungen aus E-Mail auslesen</h2>
+        <p>Holt PDF-Rechnungen aus einem IMAP-Postfach, liest Rechnungsnummer, Datum, Betrag, USt und Lieferant per KI aus, legt sie strukturiert in Google Sheets ab und meldet Unstimmigkeiten. DSGVO-Hinweis: Bei personenbezogenen Daten …</p>
+        <p class="meta">8 Nodes · mittel · benötigt: IMAP-Postfach, OpenAI-API (oder Ollama), Google Sheets</p>
+        <div class="aktionen">
+          <a class="haupt" href="https://raw.githubusercontent.com/diekiagentur/n8n-workflows-de/main/workflows/02-rechnungen-buchhaltung/eingangsrechnungen-auslesen.json" download>JSON laden</a>
+          <a href="https://die-ki-agentur.de/n8n-workflows/eingangsrechnungen-auslesen/">Anleitung</a>
+          <a href="https://github.com/diekiagentur/n8n-workflows-de/blob/main/workflows/02-rechnungen-buchhaltung/eingangsrechnungen-auslesen.json">Auf GitHub</a>
+        </div>
+      </div>
+    </li>
+    <li class="karte" data-kat="Rechnungen &amp; Buchhaltung" data-text="mahnwesen dreistufig mit betragssperre prueft taeglich die offenen posten aus google sheets, berechnet die ueberfaelligkeit und faehrt eine dreistufige staffel: ab 7 tagen freundliche zahlungserinnerung, ab 21 tagen erste mahnung mit verzugshinweis, ab 40 tagen interne eskalation an die geschaeftsfuehrung statt automatik-mail. offene posten ueber 5.000 eur werden grundsaetzlich nie automatisch gemahnt, sondern nur intern gemeldet. lohnt sich fuer betriebe ab etwa 30 offenen posten im monat, die das nachfassen bisher von hand erledigen. dsgvo-hinweis: kundendaten und zahlungsverhalten sind personenbezogene daten - empfaengeradressen gehoeren in kein ki-modell, dieser workflow versendet sie ausschliesslich an den kunden selbst und an die eigene geschaeftsfuehrung. google sheets smtp-postfach">
+      <img src="thumbnails/mahnwesen-gestaffelt.jpg" alt="Mahnwesen dreistufig mit Betragssperre" loading="lazy" width="1200" height="675">
+      <div class="inhalt">
+        <p class="kat">Rechnungen &amp; Buchhaltung</p>
+        <h2>Mahnwesen dreistufig mit Betragssperre</h2>
+        <p>Prueft taeglich die offenen Posten aus Google Sheets, berechnet die Ueberfaelligkeit und faehrt eine dreistufige Staffel: ab 7 Tagen freundliche Zahlungserinnerung, ab 21 Tagen erste Mahnung mit Verzugshinweis, ab 40 Tagen …</p>
+        <p class="meta">9 Nodes · mittel · benötigt: Google Sheets, SMTP-Postfach</p>
+        <div class="aktionen">
+          <a class="haupt" href="https://raw.githubusercontent.com/diekiagentur/n8n-workflows-de/main/workflows/02-rechnungen-buchhaltung/mahnwesen-gestaffelt.json" download>JSON laden</a>
+          <a href="https://die-ki-agentur.de/n8n-workflows/mahnwesen-gestaffelt/">Anleitung</a>
+          <a href="https://github.com/diekiagentur/n8n-workflows-de/blob/main/workflows/02-rechnungen-buchhaltung/mahnwesen-gestaffelt.json">Auf GitHub</a>
+        </div>
+      </div>
+    </li>
+    <li class="karte" data-kat="E-Mail &amp; Kommunikation" data-text="newsletter-entwurf aus blogartikeln erzeugen liest einmal woechentlich den rss-feed der eigenen website, filtert die seit dem letzten lauf neu erschienenen artikel heraus und laesst die ki daraus eine newsletter-zusammenfassung mit zwei betreffzeilen-varianten fuer einen a/b-test schreiben. der fertige text wandert als entwurf ins mail-tool (http-platzhalter) und die redaktion bekommt eine freigabe-meldung - versendet wird nichts automatisch. eu-ai-act-hinweis: nach art. 50 muessen ki-generierte inhalte als solche erkennbar sein; der workflow haengt dem entwurf deshalb einen kennzeichnungshinweis an, der im newsletter stehen bleiben sollte. dsgvo-hinweis: empfaengerdaten bleiben im mail-tool, an die ki gehen ausschliesslich die oeffentlichen artikeltexte. rss-feed der eigenen website openai-api (oder ollama) newsletter-tool mit api (z. b. brevo, cleverreach, mailchimp) smtp-versand fuer die interne freigabe">
+      <img src="thumbnails/newsletter-aus-blogartikel.jpg" alt="Newsletter-Entwurf aus Blogartikeln erzeugen" loading="lazy" width="1200" height="675">
+      <div class="inhalt">
+        <p class="kat">E-Mail &amp; Kommunikation</p>
+        <h2>Newsletter-Entwurf aus Blogartikeln erzeugen</h2>
+        <p>Liest einmal woechentlich den RSS-Feed der eigenen Website, filtert die seit dem letzten Lauf neu erschienenen Artikel heraus und laesst die KI daraus eine Newsletter-Zusammenfassung mit zwei Betreffzeilen-Varianten fuer einen …</p>
+        <p class="meta">12 Nodes · mittel · benötigt: RSS-Feed der eigenen Website, OpenAI-API (oder Ollama), Newsletter-Tool mit API (z. B. Brevo, CleverReach, Mailchimp), SMTP-Versand fuer die interne Freigabe</p>
+        <div class="aktionen">
+          <a class="haupt" href="https://raw.githubusercontent.com/diekiagentur/n8n-workflows-de/main/workflows/03-email-kommunikation/newsletter-aus-blogartikel.json" download>JSON laden</a>
+          <a href="https://die-ki-agentur.de/n8n-workflows/newsletter-aus-blogartikel/">Anleitung</a>
+          <a href="https://github.com/diekiagentur/n8n-workflows-de/blob/main/workflows/03-email-kommunikation/newsletter-aus-blogartikel.json">Auf GitHub</a>
+        </div>
+      </div>
+    </li>
+    <li class="karte" data-kat="E-Mail &amp; Kommunikation" data-text="posteingang sortieren, entwürfe vorbereiten liest neue mails per imap, faengt bounces und abwesenheitsnotizen in einem eigenen zweig ab und laesst die ki jede echte mail in anfrage, bestellung, reklamation, rechnung, newsletter oder spam einsortieren - inklusive konfidenzwert. sichere faelle werden an das zustaendige postfach weitergeleitet, unsichere landen zur sichtung im buero-postfach; fuer anfragen entsteht ein antwortentwurf, der ausdruecklich nicht automatisch versendet wird, sondern zur freigabe vorgelegt wird. dsgvo-hinweis: e-mail-inhalte sind in aller regel personenbezogen - av-vertrag mit dem ki-anbieter schliessen oder ein lokales modell (ollama) einsetzen. da jede antwort vor dem versand von einem menschen freigegeben wird, bleibt der kundenkontakt eine menschliche entscheidung. imap-postfach smtp-versand openai-api (oder ollama) mail-api fuer entwuerfe (z. b. microsoft graph, gmail)">
+      <img src="thumbnails/posteingang-sortieren-entwuerfe.jpg" alt="Posteingang sortieren, Entwürfe vorbereiten" loading="lazy" width="1200" height="675">
+      <div class="inhalt">
+        <p class="kat">E-Mail &amp; Kommunikation</p>
+        <h2>Posteingang sortieren, Entwürfe vorbereiten</h2>
+        <p>Liest neue Mails per IMAP, faengt Bounces und Abwesenheitsnotizen in einem eigenen Zweig ab und laesst die KI jede echte Mail in Anfrage, Bestellung, Reklamation, Rechnung, Newsletter oder Spam einsortieren - inklusive …</p>
+        <p class="meta">14 Nodes · fortgeschritten · benötigt: IMAP-Postfach, SMTP-Versand, OpenAI-API (oder Ollama), Mail-API fuer Entwuerfe (z. B. Microsoft Graph, Gmail)</p>
+        <div class="aktionen">
+          <a class="haupt" href="https://raw.githubusercontent.com/diekiagentur/n8n-workflows-de/main/workflows/03-email-kommunikation/posteingang-sortieren-entwuerfe.json" download>JSON laden</a>
+          <a href="https://die-ki-agentur.de/n8n-workflows/posteingang-sortieren-entwuerfe/">Anleitung</a>
+          <a href="https://github.com/diekiagentur/n8n-workflows-de/blob/main/workflows/03-email-kommunikation/posteingang-sortieren-entwuerfe.json">Auf GitHub</a>
+        </div>
+      </div>
+    </li>
+    <li class="karte" data-kat="KI-Agenten &amp; Firmenwissen" data-text="ausschreibungen prüfen und bewerten ueber ein formular wird eine ausschreibung als pdf hochgeladen. der workflow liest den text, zerlegt die unterlagen per ki in anforderungen, fristen und ausschlusskriterien und gleicht jeden punkt gegen das eigene leistungsprofil aus einem google sheet ab. ergebnis ist eine ampel — passt / passt teilweise / passt nicht — mit begruendung je anforderung, fristenhinweis und offenen punkten, die per mail an den vertrieb geht. bewusst wird kein angebot erzeugt und nichts an den auftraggeber gesendet: der workflow spart die vorsichtung, die bietentscheidung bleibt beim menschen. dsgvo-hinweis: vergabeunterlagen enthalten kontaktdaten von ansprechpartnern — fuer die uebergabe an das ki-modell gilt ein av-vertrag oder ein lokales modell; vertrauliche verfahren gehoeren nicht in eine cloud-api. n8n-formular openai-api (oder ollama) google sheets smtp-postfach">
+      <img src="thumbnails/angebots-agent-ausschreibungen.jpg" alt="Ausschreibungen prüfen und bewerten" loading="lazy" width="1200" height="675">
+      <div class="inhalt">
+        <p class="kat">KI-Agenten &amp; Firmenwissen</p>
+        <h2>Ausschreibungen prüfen und bewerten</h2>
+        <p>Ueber ein Formular wird eine Ausschreibung als PDF hochgeladen. Der Workflow liest den Text, zerlegt die Unterlagen per KI in Anforderungen, Fristen und Ausschlusskriterien und gleicht jeden Punkt gegen das eigene …</p>
+        <p class="meta">13 Nodes · fortgeschritten · benötigt: n8n-Formular, OpenAI-API (oder Ollama), Google Sheets, SMTP-Postfach</p>
+        <div class="aktionen">
+          <a class="haupt" href="https://raw.githubusercontent.com/diekiagentur/n8n-workflows-de/main/workflows/04-ki-agenten-rag/angebots-agent-ausschreibungen.json" download>JSON laden</a>
+          <a href="https://die-ki-agentur.de/n8n-workflows/angebots-agent-ausschreibungen/">Anleitung</a>
+          <a href="https://github.com/diekiagentur/n8n-workflows-de/blob/main/workflows/04-ki-agenten-rag/angebots-agent-ausschreibungen.json">Auf GitHub</a>
+        </div>
+      </div>
+    </li>
+    <li class="karte" data-kat="KI-Agenten &amp; Firmenwissen" data-text="firmenwissen als rag-index aufbauen baut naechtlich aus einer dokumentenliste (google sheets) einen durchsuchbaren wissensindex: datei laden, text extrahieren, in ueberlappende abschnitte teilen, embeddings erzeugen und in einen vector store (qdrant, alternativ supabase/pgvector) schreiben. ueber einen inhalts-hash wird nur neu eingebettet, was sich tatsaechlich geaendert hat — das spart bei jedem lauf den grossteil der api-kosten und der laufzeit. lohnt sich fuer betriebe mit gewachsener ablage aus handbuechern, preislisten und arbeitsanweisungen. dsgvo-hinweis: personenbezogene dokumente gehoeren nur in den index, wenn die zugriffsrechte im vector store abgebildet sind; fuer die embeddings gilt ein av-vertrag mit dem anbieter oder ein lokales embedding-modell. google sheets openai-api (embeddings) qdrant oder supabase/pgvector">
+      <img src="thumbnails/firmenwissen-rag-aufbauen.jpg" alt="Firmenwissen als RAG-Index aufbauen" loading="lazy" width="1200" height="675">
+      <div class="inhalt">
+        <p class="kat">KI-Agenten &amp; Firmenwissen</p>
+        <h2>Firmenwissen als RAG-Index aufbauen</h2>
+        <p>Baut naechtlich aus einer Dokumentenliste (Google Sheets) einen durchsuchbaren Wissensindex: Datei laden, Text extrahieren, in ueberlappende Abschnitte teilen, Embeddings erzeugen und in einen Vector Store (Qdrant, alternativ …</p>
+        <p class="meta">15 Nodes · fortgeschritten · benötigt: Google Sheets, OpenAI-API (Embeddings), Qdrant oder Supabase/pgvector</p>
+        <div class="aktionen">
+          <a class="haupt" href="https://raw.githubusercontent.com/diekiagentur/n8n-workflows-de/main/workflows/04-ki-agenten-rag/firmenwissen-rag-aufbauen.json" download>JSON laden</a>
+          <a href="https://die-ki-agentur.de/n8n-workflows/firmenwissen-rag-aufbauen/">Anleitung</a>
+          <a href="https://github.com/diekiagentur/n8n-workflows-de/blob/main/workflows/04-ki-agenten-rag/firmenwissen-rag-aufbauen.json">Auf GitHub</a>
+        </div>
+      </div>
+    </li>
+    <li class="karte" data-kat="KI-Agenten &amp; Firmenwissen" data-text="ki-anfragen über ein lokales modell beantworten nimmt anfragen per webhook entgegen und beantwortet sie mit einem lokal gehosteten modell (ollama auf demselben server), sodass keine inhalte an einen cloud-anbieter gehen; protokolliert werden nur metadaten, keine texte. lokale modelle rechnen sich, wenn regelmaessig sensible inhalte verarbeitet werden — personalunterlagen, patienten- oder mandantendaten, konstruktionsdetails — oder wenn hohe, gleichmaessige anfragemengen die laufenden api-kosten ueber den preis der eigenen hardware treiben. ihre grenzen: ein 8b- bis 14b-modell bleibt bei komplexer analyse, langen kontexten und exaktem werkzeuggebrauch spuerbar hinter den grossen cloud-modellen zurueck, braucht auf cpu 10-60 sekunden pro antwort, und hardware, updates und verfuegbarkeit liegen im eigenen haus. faellt das lokale modell aus, antwortet der workflow mit einer klaren fehlermeldung (http 503) und weicht bewusst nicht still auf eine cloud-api aus — sonst wandern genau die daten nach draussen, die lokal bleiben sollten. dsgvo-hinweis: lokale verarbeitung ersetzt weder den eintrag im verarbeitungsverzeichnis noch die kennzeichnung ki-generierter inhalte nach art. 50 eu ai act. ollama auf dem n8n-host google sheets (optionales metadaten-protokoll)">
+      <img src="thumbnails/lokale-ki-dsgvo-konform.jpg" alt="KI-Anfragen über ein lokales Modell beantworten" loading="lazy" width="1200" height="675">
+      <div class="inhalt">
+        <p class="kat">KI-Agenten &amp; Firmenwissen</p>
+        <h2>KI-Anfragen über ein lokales Modell beantworten</h2>
+        <p>Nimmt Anfragen per Webhook entgegen und beantwortet sie mit einem lokal gehosteten Modell (Ollama auf demselben Server), sodass keine Inhalte an einen Cloud-Anbieter gehen; protokolliert werden nur Metadaten, keine Texte. …</p>
+        <p class="meta">10 Nodes · mittel · benötigt: Ollama auf dem n8n-Host, Google Sheets (optionales Metadaten-Protokoll)</p>
+        <div class="aktionen">
+          <a class="haupt" href="https://raw.githubusercontent.com/diekiagentur/n8n-workflows-de/main/workflows/04-ki-agenten-rag/lokale-ki-dsgvo-konform.json" download>JSON laden</a>
+          <a href="https://die-ki-agentur.de/n8n-workflows/lokale-ki-dsgvo-konform/">Anleitung</a>
+          <a href="https://github.com/diekiagentur/n8n-workflows-de/blob/main/workflows/04-ki-agenten-rag/lokale-ki-dsgvo-konform.json">Auf GitHub</a>
+        </div>
+      </div>
+    </li>
+    <li class="karte" data-kat="KI-Agenten &amp; Firmenwissen" data-text="wissens-assistent mit quellenangabe nimmt mitarbeiterfragen per webhook entgegen und beantwortet sie mit einem ki-agenten, der ausschliesslich im eigenen firmenwissen-index (vector store) sucht und jede aussage mit dem dokumentnamen belegt. findet die suche nichts, antwortet der workflow ehrlich &#x27;nicht in den unterlagen gefunden&#x27;, statt eine plausible auskunft zu erfinden. alle frage-antwort-paare landen in einem protokoll, unbeantwortete fragen zusaetzlich als meldung an die wissenspflege — so werden luecken in der dokumentation sichtbar. setzt den workflow &#x27;firmenwissen-rag-aufbauen&#x27; voraus. eu-ai-act-hinweis: die antwort wird als ki-generiert gekennzeichnet (art. 50); fuer die verarbeitung der fragen gilt ein av-vertrag mit dem modellanbieter oder ein lokales modell. qdrant (befuellter index) openai-api (oder ollama) google sheets smtp-postfach">
+      <img src="thumbnails/wissens-assistent-abfragen.jpg" alt="Wissens-Assistent mit Quellenangabe" loading="lazy" width="1200" height="675">
+      <div class="inhalt">
+        <p class="kat">KI-Agenten &amp; Firmenwissen</p>
+        <h2>Wissens-Assistent mit Quellenangabe</h2>
+        <p>Nimmt Mitarbeiterfragen per Webhook entgegen und beantwortet sie mit einem KI-Agenten, der ausschliesslich im eigenen Firmenwissen-Index (Vector Store) sucht und jede Aussage mit dem Dokumentnamen belegt. Findet die Suche …</p>
+        <p class="meta">12 Nodes · fortgeschritten · benötigt: Qdrant (befuellter Index), OpenAI-API (oder Ollama), Google Sheets, SMTP-Postfach</p>
+        <div class="aktionen">
+          <a class="haupt" href="https://raw.githubusercontent.com/diekiagentur/n8n-workflows-de/main/workflows/04-ki-agenten-rag/wissens-assistent-abfragen.json" download>JSON laden</a>
+          <a href="https://die-ki-agentur.de/n8n-workflows/wissens-assistent-abfragen/">Anleitung</a>
+          <a href="https://github.com/diekiagentur/n8n-workflows-de/blob/main/workflows/04-ki-agenten-rag/wissens-assistent-abfragen.json">Auf GitHub</a>
+        </div>
+      </div>
+    </li>
+    <li class="karte" data-kat="Marketing &amp; Content" data-text="seo-content-briefing aus serp-analyse die redaktion traegt ein keyword in ein formular ein, der workflow holt die aktuellen suchergebnisse ueber eine serp-api (platzhalter fuer dataforseo oder serpapi), wertet die top-treffer aus und laesst die ki daraus ein content-briefing bauen: suchintention, gliederung mit h2/h3, fragen die der text beantworten muss, empfohlene wortzahl und interne verlinkungsideen. das briefing landet als zeile im redaktions-sheet und geht per mail an die anfragende person. hinweis: das briefing ist ein vorschlag auf basis fremder seiten — inhalte nicht uebernehmen, sondern eigenstaendig schreiben. in das formular gehoeren keine personenbezogenen daten. serp-api (dataforseo oder serpapi) openai-api (oder ollama) google sheets smtp-postfach">
+      <img src="thumbnails/seo-content-briefing.jpg" alt="SEO-Content-Briefing aus SERP-Analyse" loading="lazy" width="1200" height="675">
+      <div class="inhalt">
+        <p class="kat">Marketing &amp; Content</p>
+        <h2>SEO-Content-Briefing aus SERP-Analyse</h2>
+        <p>Die Redaktion traegt ein Keyword in ein Formular ein, der Workflow holt die aktuellen Suchergebnisse ueber eine SERP-API (Platzhalter fuer DataForSEO oder SerpAPI), wertet die Top-Treffer aus und laesst die KI daraus ein …</p>
+        <p class="meta">10 Nodes · mittel · benötigt: SERP-API (DataForSEO oder SerpAPI), OpenAI-API (oder Ollama), Google Sheets, SMTP-Postfach</p>
+        <div class="aktionen">
+          <a class="haupt" href="https://raw.githubusercontent.com/diekiagentur/n8n-workflows-de/main/workflows/05-marketing-content/seo-content-briefing.json" download>JSON laden</a>
+          <a href="https://die-ki-agentur.de/n8n-workflows/seo-content-briefing/">Anleitung</a>
+          <a href="https://github.com/diekiagentur/n8n-workflows-de/blob/main/workflows/05-marketing-content/seo-content-briefing.json">Auf GitHub</a>
+        </div>
+      </div>
+    </li>
+    <li class="karte" data-kat="Marketing &amp; Content" data-text="social-media-beiträge aus blogartikeln liest taeglich den blog-rss-feed, erkennt neue artikel und laesst die ki daraus plattformspezifische beitraege texten: linkedin sachlich-fachlich, instagram kuerzer und direkter, jeweils mit hashtag-vorschlaegen und einem bild-prompt. bewusste entscheidung: es wird nichts automatisch veroeffentlicht — alles landet als entwurf in einem freigabe-sheet, die marketing-person bekommt eine erinnerung. so bleibt die redaktionelle verantwortung beim menschen. hinweis: ki-generierte bilder gelten als synthetische inhalte und sind nach art. 50 eu ai act zu kennzeichnen; ohne av-vertrag mit dem ki-anbieter keine personenbezogenen daten in die prompts geben. blog mit rss-feed openai-api (oder ollama) google sheets smtp-postfach">
+      <img src="thumbnails/social-media-aus-blogartikel.jpg" alt="Social-Media-Beiträge aus Blogartikeln" loading="lazy" width="1200" height="675">
+      <div class="inhalt">
+        <p class="kat">Marketing &amp; Content</p>
+        <h2>Social-Media-Beiträge aus Blogartikeln</h2>
+        <p>Liest taeglich den Blog-RSS-Feed, erkennt neue Artikel und laesst die KI daraus plattformspezifische Beitraege texten: LinkedIn sachlich-fachlich, Instagram kuerzer und direkter, jeweils mit Hashtag-Vorschlaegen und einem …</p>
+        <p class="meta">10 Nodes · mittel · benötigt: Blog mit RSS-Feed, OpenAI-API (oder Ollama), Google Sheets, SMTP-Postfach</p>
+        <div class="aktionen">
+          <a class="haupt" href="https://raw.githubusercontent.com/diekiagentur/n8n-workflows-de/main/workflows/05-marketing-content/social-media-aus-blogartikel.json" download>JSON laden</a>
+          <a href="https://die-ki-agentur.de/n8n-workflows/social-media-aus-blogartikel/">Anleitung</a>
+          <a href="https://github.com/diekiagentur/n8n-workflows-de/blob/main/workflows/05-marketing-content/social-media-aus-blogartikel.json">Auf GitHub</a>
+        </div>
+      </div>
+    </li>
+    <li class="karte" data-kat="Kundenservice" data-text="faq-chatbot mit eigener wissensbasis nimmt chat-anfragen per webhook entgegen, sucht die passenden stellen in der eigenen wissensbasis (vector store oder retrieval-api, als platzhalter hinterlegt) und laesst einen ki-agenten ausschliesslich aus diesen treffern antworten - mit quellenangabe und konfidenzwert. reicht die beleglage nicht, wird nicht geraten, sondern an einen mitarbeiter uebergeben. jede konversation wird protokolliert. pflicht-hinweis: chatbots muessen sich nach art. 50 eu ai act seit dem 02.08.2026 als ki zu erkennen geben - der workflow liefert diesen hinweis in jeder antwort mit (feld &#x27;ki_hinweis&#x27;), er muss in der chat-oberflaeche sichtbar ausgegeben werden. dsgvo-hinweis: frage und session-id gehen an den ki-anbieter, deshalb av-vertrag schliessen oder lokales modell nutzen; das protokoll enthaelt personenbezogene daten und braucht eine loeschfrist. webhook-faehiges chat-frontend wissensbasis mit such-api (vector store, qdrant, typesense o. ae.) openai-api (oder ollama) google sheets fuer das protokoll smtp-versand">
+      <img src="thumbnails/faq-chatbot-mit-wissensbasis.jpg" alt="FAQ-Chatbot mit eigener Wissensbasis" loading="lazy" width="1200" height="675">
+      <div class="inhalt">
+        <p class="kat">Kundenservice</p>
+        <h2>FAQ-Chatbot mit eigener Wissensbasis</h2>
+        <p>Nimmt Chat-Anfragen per Webhook entgegen, sucht die passenden Stellen in der eigenen Wissensbasis (Vector Store oder Retrieval-API, als Platzhalter hinterlegt) und laesst einen KI-Agenten ausschliesslich aus diesen Treffern …</p>
+        <p class="meta">15 Nodes · fortgeschritten · benötigt: Webhook-faehiges Chat-Frontend, Wissensbasis mit Such-API (Vector Store, Qdrant, Typesense o. ae.), OpenAI-API (oder Ollama), Google Sheets fuer das Protokoll, SMTP-Versand</p>
+        <div class="aktionen">
+          <a class="haupt" href="https://raw.githubusercontent.com/diekiagentur/n8n-workflows-de/main/workflows/06-kundenservice/faq-chatbot-mit-wissensbasis.json" download>JSON laden</a>
+          <a href="https://die-ki-agentur.de/n8n-workflows/faq-chatbot-mit-wissensbasis/">Anleitung</a>
+          <a href="https://github.com/diekiagentur/n8n-workflows-de/blob/main/workflows/06-kundenservice/faq-chatbot-mit-wissensbasis.json">Auf GitHub</a>
+        </div>
+      </div>
+    </li>
+    <li class="karte" data-kat="Kundenservice" data-text="reklamationen erfassen und eskalieren nimmt reklamationen ueber ein n8n-formular auf (bestellnummer, problembeschreibung, foto-upload), prueft die angaben auf plausibilitaet und gewaehrleistungsfrist und laesst die ki schweregrad und sachgebiet bestimmen. daraus entstehen ticket, prioritaet und eine realistische bearbeitungszeit in werktagen; kritische faelle - sicherheits-, gesundheits- oder rechtsrisiko - gehen sofort an die teamleitung statt in die standard-queue. der kunde bekommt eine eingangsbestaetigung mit der ticketnummer und einer belastbaren frist. dsgvo-hinweis: das formular erhebt personenbezogene daten und fotos - av-vertrag mit dem ki-anbieter schliessen oder lokales modell (ollama) nutzen, loeschfristen im ticketsystem hinterlegen und im formular auf die datenschutzerklaerung verlinken. die ki bewertet nur, entschieden wird die eskalation ueber feste regeln. n8n-formular (formtrigger) openai-api (oder ollama) ticketsystem mit api (z. b. zammad, freshdesk, jira service management) smtp-versand">
+      <img src="thumbnails/reklamation-erfassen-eskalieren.jpg" alt="Reklamationen erfassen und eskalieren" loading="lazy" width="1200" height="675">
+      <div class="inhalt">
+        <p class="kat">Kundenservice</p>
+        <h2>Reklamationen erfassen und eskalieren</h2>
+        <p>Nimmt Reklamationen ueber ein n8n-Formular auf (Bestellnummer, Problembeschreibung, Foto-Upload), prueft die Angaben auf Plausibilitaet und Gewaehrleistungsfrist und laesst die KI Schweregrad und Sachgebiet bestimmen. Daraus …</p>
+        <p class="meta">12 Nodes · mittel · benötigt: n8n-Formular (formTrigger), OpenAI-API (oder Ollama), Ticketsystem mit API (z. B. Zammad, Freshdesk, Jira Service Management), SMTP-Versand</p>
+        <div class="aktionen">
+          <a class="haupt" href="https://raw.githubusercontent.com/diekiagentur/n8n-workflows-de/main/workflows/06-kundenservice/reklamation-erfassen-eskalieren.json" download>JSON laden</a>
+          <a href="https://die-ki-agentur.de/n8n-workflows/reklamation-erfassen-eskalieren/">Anleitung</a>
+          <a href="https://github.com/diekiagentur/n8n-workflows-de/blob/main/workflows/06-kundenservice/reklamation-erfassen-eskalieren.json">Auf GitHub</a>
+        </div>
+      </div>
+    </li>
+    <li class="karte" data-kat="Daten &amp; Reporting" data-text="kpi-wochenbericht für die geschäftsführung sammelt montags um 7 uhr die zahlen der vorwoche aus zwei quellen - umsaetze aus google sheets und offene angebote aus der warenwirtschaft per http-api - und berechnet umsatz, auftragseingang, angebots-conversion und die veraenderung zur vorwoche in prozent. eine ki formuliert dazu einen nuechternen kommentar, der nur auffaelligkeiten benennt statt zahlen zu wiederholen. fehlt eine datenquelle, geht der bericht trotzdem raus - mit klarem hinweis auf die luecke statt mit falschen zahlen. dsgvo- und eu-ai-act-hinweis: an das modell gehen ausschliesslich aggregierte kennzahlen, keine kunden- oder mitarbeiternamen; der kommentar ist im bericht als maschinell erzeugt gekennzeichnet. google sheets http-api der warenwirtschaft openai-api (oder ollama) smtp-postfach">
+      <img src="thumbnails/kpi-wochenbericht.jpg" alt="KPI-Wochenbericht für die Geschäftsführung" loading="lazy" width="1200" height="675">
+      <div class="inhalt">
+        <p class="kat">Daten &amp; Reporting</p>
+        <h2>KPI-Wochenbericht für die Geschäftsführung</h2>
+        <p>Sammelt montags um 7 Uhr die Zahlen der Vorwoche aus zwei Quellen - Umsaetze aus Google Sheets und offene Angebote aus der Warenwirtschaft per HTTP-API - und berechnet Umsatz, Auftragseingang, Angebots-Conversion und die …</p>
+        <p class="meta">11 Nodes · mittel · benötigt: Google Sheets, HTTP-API der Warenwirtschaft, OpenAI-API (oder Ollama), SMTP-Postfach</p>
+        <div class="aktionen">
+          <a class="haupt" href="https://raw.githubusercontent.com/diekiagentur/n8n-workflows-de/main/workflows/07-daten-reporting/kpi-wochenbericht.json" download>JSON laden</a>
+          <a href="https://die-ki-agentur.de/n8n-workflows/kpi-wochenbericht/">Anleitung</a>
+          <a href="https://github.com/diekiagentur/n8n-workflows-de/blob/main/workflows/07-daten-reporting/kpi-wochenbericht.json">Auf GitHub</a>
+        </div>
+      </div>
+    </li>
+    <li class="karte" data-kat="Daten &amp; Reporting" data-text="wettbewerbspreise mit schwellenwert beobachten ruft taeglich die in einem google sheet gepflegten wettbewerber-urls ab, liest den preis zuerst ueber einen hinterlegten css-selektor und faellt nur bei misserfolg auf die ki zurueck, vergleicht ihn mit dem eigenen preis und schreibt jeden lauf in eine historie. eine meldung geht nur raus, wenn die abweichung den je produkt gepflegten schwellenwert ueberschreitet - so entsteht kein taegliches rauschen, das nach zwei wochen ignoriert wird. rechtlicher hinweis: vor dem einsatz robots.txt und nutzungsbedingungen der zielseiten pruefen, abrufe auf ein zumutbares mass begrenzen (hier ein abruf alle zwei sekunden) und den eigenen betrieb im user-agent kenntlich machen; preisdaten sind nicht personenbezogen, produktseiten koennen aber urheberrechtlich geschuetzte inhalte enthalten, die nicht gespeichert werden sollten. google sheets openai-api (oder ollama) smtp-postfach">
+      <img src="thumbnails/preise-wettbewerb-beobachten.jpg" alt="Wettbewerbspreise mit Schwellenwert beobachten" loading="lazy" width="1200" height="675">
+      <div class="inhalt">
+        <p class="kat">Daten &amp; Reporting</p>
+        <h2>Wettbewerbspreise mit Schwellenwert beobachten</h2>
+        <p>Ruft taeglich die in einem Google Sheet gepflegten Wettbewerber-URLs ab, liest den Preis zuerst ueber einen hinterlegten CSS-Selektor und faellt nur bei Misserfolg auf die KI zurueck, vergleicht ihn mit dem eigenen Preis und …</p>
+        <p class="meta">13 Nodes · fortgeschritten · benötigt: Google Sheets, OpenAI-API (oder Ollama), SMTP-Postfach</p>
+        <div class="aktionen">
+          <a class="haupt" href="https://raw.githubusercontent.com/diekiagentur/n8n-workflows-de/main/workflows/07-daten-reporting/preise-wettbewerb-beobachten.json" download>JSON laden</a>
+          <a href="https://die-ki-agentur.de/n8n-workflows/preise-wettbewerb-beobachten/">Anleitung</a>
+          <a href="https://github.com/diekiagentur/n8n-workflows-de/blob/main/workflows/07-daten-reporting/preise-wettbewerb-beobachten.json">Auf GitHub</a>
+        </div>
+      </div>
+    </li>
+    <li class="karte" data-kat="DSGVO &amp; EU AI Act" data-text="dsgvo-auskunftsersuchen strukturiert bearbeiten nimmt auskunftsersuchen nach art. 15 dsgvo ueber ein formular entgegen, legt einen vorgang im fristenregister an und berechnet die fristen. entscheidender punkt: es werden keine daten automatisch herausgegeben. der workflow haelt an und wartet auf die manuelle bestaetigung der identitaet durch die datenschutzverantwortliche person; erst danach werden die angebundenen datenquellen abgefragt und eine zusammenstellung entlang der pflichtangaben aus art. 15 abs. 1 erzeugt. diese zusammenstellung geht als entwurf an die verantwortliche person, nicht an die betroffene person. parallel laeuft die fristenueberwachung: erinnerung nach 20 tagen, weil die antwortfrist nach art. 12 abs. 3 dsgvo einen monat betraegt und eine verlaengerung um bis zu zwei monate begruendet und angekuendigt werden muss. der workflow strukturiert die bearbeitung und dokumentiert sie nachvollziehbar, er ersetzt weder die rechtliche pruefung des einzelfalls noch die abwaegung nach art. 15 abs. 4 dsgvo. google sheets smtp-postfach interne datenquellen-api (optional)">
+      <img src="thumbnails/auskunftsersuchen-bearbeiten.jpg" alt="DSGVO-Auskunftsersuchen strukturiert bearbeiten" loading="lazy" width="1200" height="675">
+      <div class="inhalt">
+        <p class="kat">DSGVO &amp; EU AI Act</p>
+        <h2>DSGVO-Auskunftsersuchen strukturiert bearbeiten</h2>
+        <p>Nimmt Auskunftsersuchen nach Art. 15 DSGVO ueber ein Formular entgegen, legt einen Vorgang im Fristenregister an und berechnet die Fristen. Entscheidender Punkt: Es werden keine Daten automatisch herausgegeben. Der Workflow …</p>
+        <p class="meta">16 Nodes · fortgeschritten · benötigt: Google Sheets, SMTP-Postfach, interne Datenquellen-API (optional)</p>
+        <div class="aktionen">
+          <a class="haupt" href="https://raw.githubusercontent.com/diekiagentur/n8n-workflows-de/main/workflows/08-dsgvo-compliance/auskunftsersuchen-bearbeiten.json" download>JSON laden</a>
+          <a href="https://die-ki-agentur.de/n8n-workflows/auskunftsersuchen-bearbeiten/">Anleitung</a>
+          <a href="https://github.com/diekiagentur/n8n-workflows-de/blob/main/workflows/08-dsgvo-compliance/auskunftsersuchen-bearbeiten.json">Auf GitHub</a>
+        </div>
+      </div>
+    </li>
+    <li class="karte" data-kat="DSGVO &amp; EU AI Act" data-text="ki-inventar nach eu ai act pflegen abteilungen melden ueber ein formular, welche ki-systeme sie einsetzen — system, zweck, datenarten, anbieter, rechtsgrundlage. eine ki schlaegt daraufhin die risikoklasse nach eu ai act vor (verbotene praktik, hochrisiko nach anhang iii, transparenzpflicht nach art. 50 oder minimales risiko), immer mit begruendung und dem ausdruecklichen hinweis, dass die finale einstufung ein mensch vornehmen muss. jede meldung landet im ki-inventar-sheet; bei verdacht auf hochrisiko oder verbotene praktik geht sofort eine meldung an die geschaeftsfuehrung. fristen: die pflicht zu ausreichender ki-kompetenz nach art. 4 sowie das verbot bestimmter praktiken gelten seit dem 02.02.2025, die transparenzpflichten nach art. 50 und die hochrisiko-anforderungen fuer anhang-iii-systeme seit dem 02.08.2026, die anforderungen fuer hochrisiko-systeme nach anhang i ab dem 02.08.2027. der workflow dokumentiert und strukturiert, er ersetzt keine rechtsberatung. fuer den ki-anbieter ist ein av-vertrag noetig, sofern personenbezogene daten im formular landen — alternativ ein lokales modell. openai-api (oder ollama) google sheets smtp-postfach">
+      <img src="thumbnails/ki-inventar-pflegen.jpg" alt="KI-Inventar nach EU AI Act pflegen" loading="lazy" width="1200" height="675">
+      <div class="inhalt">
+        <p class="kat">DSGVO &amp; EU AI Act</p>
+        <h2>KI-Inventar nach EU AI Act pflegen</h2>
+        <p>Abteilungen melden ueber ein Formular, welche KI-Systeme sie einsetzen — System, Zweck, Datenarten, Anbieter, Rechtsgrundlage. Eine KI schlaegt daraufhin die Risikoklasse nach EU AI Act vor (verbotene Praktik, Hochrisiko nach …</p>
+        <p class="meta">8 Nodes · mittel · benötigt: OpenAI-API (oder Ollama), Google Sheets, SMTP-Postfach</p>
+        <div class="aktionen">
+          <a class="haupt" href="https://raw.githubusercontent.com/diekiagentur/n8n-workflows-de/main/workflows/08-dsgvo-compliance/ki-inventar-pflegen.json" download>JSON laden</a>
+          <a href="https://die-ki-agentur.de/n8n-workflows/ki-inventar-pflegen/">Anleitung</a>
+          <a href="https://github.com/diekiagentur/n8n-workflows-de/blob/main/workflows/08-dsgvo-compliance/ki-inventar-pflegen.json">Auf GitHub</a>
+        </div>
+      </div>
+    </li>
+    <li class="karte" data-kat="Handwerk &amp; Produktion" data-text="kundenanfragen zu terminvorschlägen nimmt kundenanfragen ueber ein web-formular an, laesst die ki gewerk, taetigkeit, ort und dringlichkeit herauslesen, gleicht die termine gegen den betriebskalender ab und schickt dem kunden zwei bis drei konkrete terminvorschlaege per e-mail. erkannte notfaelle (wasserschaden, heizungsausfall, gasgeruch, kurzschluss) laufen nicht in die terminlogik, sondern loesen sofort eine telefon-benachrichtigung an die bereitschaft aus. dsgvo-hinweis: die anfrage enthaelt name, adresse und telefonnummer des kunden — mit dem ki-anbieter einen av-vertrag schliessen oder ein lokales modell (ollama) nutzen. die automatisch erzeugte e-mail ist nach art. 50 eu ai act als ki-gestuetzt gekennzeichnet. n8n-formular (oder imap-postfach) openai-api (oder ollama) google calendar api smtp-postausgang telefonie-/sms-api fuer die bereitschaft">
+      <img src="thumbnails/anfrage-zu-terminvorschlag.jpg" alt="Kundenanfragen zu Terminvorschlägen" loading="lazy" width="1200" height="675">
+      <div class="inhalt">
+        <p class="kat">Handwerk &amp; Produktion</p>
+        <h2>Kundenanfragen zu Terminvorschlägen</h2>
+        <p>Nimmt Kundenanfragen ueber ein Web-Formular an, laesst die KI Gewerk, Taetigkeit, Ort und Dringlichkeit herauslesen, gleicht die Termine gegen den Betriebskalender ab und schickt dem Kunden zwei bis drei konkrete …</p>
+        <p class="meta">11 Nodes · fortgeschritten · benötigt: n8n-Formular (oder IMAP-Postfach), OpenAI-API (oder Ollama), Google Calendar API, SMTP-Postausgang, Telefonie-/SMS-API fuer die Bereitschaft</p>
+        <div class="aktionen">
+          <a class="haupt" href="https://raw.githubusercontent.com/diekiagentur/n8n-workflows-de/main/workflows/09-handwerk-produktion/anfrage-zu-terminvorschlag.json" download>JSON laden</a>
+          <a href="https://die-ki-agentur.de/n8n-workflows/anfrage-zu-terminvorschlag/">Anleitung</a>
+          <a href="https://github.com/diekiagentur/n8n-workflows-de/blob/main/workflows/09-handwerk-produktion/anfrage-zu-terminvorschlag.json">Auf GitHub</a>
+        </div>
+      </div>
+    </li>
+    <li class="karte" data-kat="Handwerk &amp; Produktion" data-text="wartungstermine und prüffristen nachhalten prueft einmal im monat die anlagenliste eines handwerks- oder produktionsbetriebs, rechnet aus wartungsintervall und gesetzlicher prueffrist aus, welche anlagen faellig oder ueberfaellig sind, und schickt den kunden ein terminangebot. bereits eingegangene rueckmeldungen aus dem antwortformular werden zugeordnet, sodass niemand doppelt angeschrieben wird; am ende entsteht eine sortierte planungsliste fuer die disposition. gesetzliche pruefungen (z. b. nach betrsichv, dguv v3, trgs 511, kueo oder heizungspruefung) werden getrennt vom freiwilligen wartungsintervall gefuehrt und mit vorrang eskaliert. dsgvo-hinweis: die liste enthaelt kundenstammdaten — zugriff auf das sheet auf die disposition beschraenken und loeschfristen aus dem loeschkonzept beachten. google sheets smtp-postausgang">
+      <img src="thumbnails/wartungstermine-erinnern.jpg" alt="Wartungstermine und Prüffristen nachhalten" loading="lazy" width="1200" height="675">
+      <div class="inhalt">
+        <p class="kat">Handwerk &amp; Produktion</p>
+        <h2>Wartungstermine und Prüffristen nachhalten</h2>
+        <p>Prueft einmal im Monat die Anlagenliste eines Handwerks- oder Produktionsbetriebs, rechnet aus Wartungsintervall und gesetzlicher Prueffrist aus, welche Anlagen faellig oder ueberfaellig sind, und schickt den Kunden ein …</p>
+        <p class="meta">12 Nodes · mittel · benötigt: Google Sheets, SMTP-Postausgang</p>
+        <div class="aktionen">
+          <a class="haupt" href="https://raw.githubusercontent.com/diekiagentur/n8n-workflows-de/main/workflows/09-handwerk-produktion/wartungstermine-erinnern.json" download>JSON laden</a>
+          <a href="https://die-ki-agentur.de/n8n-workflows/wartungstermine-erinnern/">Anleitung</a>
+          <a href="https://github.com/diekiagentur/n8n-workflows-de/blob/main/workflows/09-handwerk-produktion/wartungstermine-erinnern.json">Auf GitHub</a>
+        </div>
+      </div>
+    </li>
+    <li class="karte" data-kat="Personal &amp; HR" data-text="bewerbungen strukturiert aufbereiten nimmt bewerbungen ueber ein formular mit lebenslauf-upload entgegen, extrahiert den text und laesst die ki die qualifikationen strukturiert zusammenfassen und den hinterlegten stellenanforderungen gegenueberstellen. der bewerber erhaelt eine eingangsbestaetigung, die personalabteilung ein lesbares dossier. bewusst ohne score, ranking oder automatische absage: ki-systeme, die bei der personalauswahl eingesetzt werden, gelten nach anhang iii des eu ai act als hochrisiko-systeme; die entsprechenden pflichten gelten seit dem 02.08.2026. automatisierte auswahl- oder ablehnungsentscheidungen loesen strenge anforderungen aus (risikomanagement, protokollierung, menschliche aufsicht, konformitaetsbewertung) und beruehren zusaetzlich art. 22 dsgvo sowie das agg. dieser workflow bleibt deshalb reine entscheidungshilfe: er strukturiert und belegt, entschieden wird ausschliesslich von menschen. dsgvo-hinweis: bewerberdaten sind besonders sensibel — av-vertrag mit dem ki-anbieter schliessen oder lokales modell (ollama) nutzen und die loeschfrist von sechs monaten nach absage einhalten. n8n-formular openai-api (oder ollama) smtp-postausgang">
+      <img src="thumbnails/bewerbung-vorpruefen.jpg" alt="Bewerbungen strukturiert aufbereiten" loading="lazy" width="1200" height="675">
+      <div class="inhalt">
+        <p class="kat">Personal &amp; HR</p>
+        <h2>Bewerbungen strukturiert aufbereiten</h2>
+        <p>Nimmt Bewerbungen ueber ein Formular mit Lebenslauf-Upload entgegen, extrahiert den Text und laesst die KI die Qualifikationen strukturiert zusammenfassen und den hinterlegten Stellenanforderungen gegenueberstellen. Der …</p>
+        <p class="meta">10 Nodes · fortgeschritten · benötigt: n8n-Formular, OpenAI-API (oder Ollama), SMTP-Postausgang</p>
+        <div class="aktionen">
+          <a class="haupt" href="https://raw.githubusercontent.com/diekiagentur/n8n-workflows-de/main/workflows/10-personal-hr/bewerbung-vorpruefen.json" download>JSON laden</a>
+          <a href="https://die-ki-agentur.de/n8n-workflows/bewerbung-vorpruefen/">Anleitung</a>
+          <a href="https://github.com/diekiagentur/n8n-workflows-de/blob/main/workflows/10-personal-hr/bewerbung-vorpruefen.json">Auf GitHub</a>
+        </div>
+      </div>
+    </li>
+    <li class="karte" data-kat="Personal &amp; HR" data-text="onboarding-checkliste automatisch erzeugen wird vom personalsystem per webhook angestossen, sobald eine einstellung feststeht: der workflow erzeugt aus abteilung, rolle und eintrittsdatum eine vollstaendige onboarding-checkliste (it-zugaenge, arbeitsplatz und hardware, pflichtunterweisungen, dokumente, organisation), setzt je aufgabe eine frist relativ zum ersten arbeitstag, verteilt die aufgabenpakete an it, facility, buchhaltung und fuehrungskraft, protokolliert alles in google sheets und erinnert bei ueberfaelligen punkten. zum schluss geht ein willkommensplan an die neue kollegin oder den neuen kollegen. fester bestandteil der checkliste ist die ki-kompetenzschulung nach art. 4 eu ai act — betriebe muessen seit dem 02.02.2025 sicherstellen, dass beschaeftigte, die ki-systeme nutzen, ueber ausreichende ki-kompetenz verfuegen. dsgvo-hinweis: der webhook transportiert beschaeftigtendaten — endpunkt nur ueber https mit header-authentifizierung betreiben, zugriff auf das sheet auf personal und die jeweiligen zustaendigen beschraenken. webhook (personalsystem oder internes formular) google sheets smtp-postausgang">
+      <img src="thumbnails/onboarding-checkliste.jpg" alt="Onboarding-Checkliste automatisch erzeugen" loading="lazy" width="1200" height="675">
+      <div class="inhalt">
+        <p class="kat">Personal &amp; HR</p>
+        <h2>Onboarding-Checkliste automatisch erzeugen</h2>
+        <p>Wird vom Personalsystem per Webhook angestossen, sobald eine Einstellung feststeht: Der Workflow erzeugt aus Abteilung, Rolle und Eintrittsdatum eine vollstaendige Onboarding-Checkliste (IT-Zugaenge, Arbeitsplatz und Hardware, …</p>
+        <p class="meta">15 Nodes · mittel · benötigt: Webhook (Personalsystem oder internes Formular), Google Sheets, SMTP-Postausgang</p>
+        <div class="aktionen">
+          <a class="haupt" href="https://raw.githubusercontent.com/diekiagentur/n8n-workflows-de/main/workflows/10-personal-hr/onboarding-checkliste.json" download>JSON laden</a>
+          <a href="https://die-ki-agentur.de/n8n-workflows/onboarding-checkliste/">Anleitung</a>
+          <a href="https://github.com/diekiagentur/n8n-workflows-de/blob/main/workflows/10-personal-hr/onboarding-checkliste.json">Auf GitHub</a>
+        </div>
+      </div>
+    </li>
+  </ul>
+  <p class="leerzustand" id="leer" hidden>Kein Workflow passt zu dieser Suche.</p>
+</main>
+<footer>
+  <div class="wrap">
+    <p>Zusammengestellt und gepflegt von
+      <a href="https://die-ki-agentur.de/">die-ki-agentur.de</a> — KI-Beratung, Automatisierung und
+      Schulung für den Mittelstand, aus Hechingen in Baden-Württemberg.
+      Wer die Workflows nicht selbst einrichten möchte:
+      <a href="https://die-ki-agentur.de/n8n-agentur/">n8n-Agentur</a> ·
+      <a href="https://die-ki-agentur.de/kontakt/">Kontakt</a> ·
+      <a href="https://die-ki-agentur.de/impressum/">Impressum</a>.</p>
+    <p>Code unter MIT-Lizenz. Die Vorlagen enthalten keine Zugangsdaten — Credentials
+      werden nach dem Import in n8n hinterlegt. Vor dem Scharfschalten prüfen, welche
+      Daten an welchen Anbieter gehen; die Hinweise dazu stehen in jedem Workflow.</p>
+  </div>
+</footer>
+<script>
+(function(){
+  var suche=document.getElementById('suche');
+  var chips=Array.prototype.slice.call(document.querySelectorAll('.chip'));
+  var karten=Array.prototype.slice.call(document.querySelectorAll('.karte'));
+  var leer=document.getElementById('leer');
+  var kat='';
+  function filtern(){
+    var q=suche.value.toLowerCase().trim(), sichtbar=0;
+    karten.forEach(function(k){
+      var passt=(!kat||k.dataset.kat===kat)&&(!q||k.dataset.text.indexOf(q)>-1);
+      k.hidden=!passt; if(passt)sichtbar++;
+    });
+    leer.hidden=sichtbar>0;
+  }
+  suche.addEventListener('input',filtern);
+  chips.forEach(function(c){c.addEventListener('click',function(){
+    var an=c.getAttribute('aria-pressed')==='true';
+    chips.forEach(function(x){x.setAttribute('aria-pressed','false')});
+    kat=an?'':c.dataset.kat;
+    if(!an)c.setAttribute('aria-pressed','true');
+    filtern();
+  })});
+})();
+</script>
+</body>
+</html>

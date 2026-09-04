@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://diekiagentur.github.io/n8n-workflows-de/sitemap.xml
