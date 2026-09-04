@@ -1,0 +1,766 @@
+{
+  "name": "Process GDPR Article 15 requests with human identity checks and Google Sheets",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## How it works\n\nA data subject request under Art. 15 GDPR is logged through an n8n form. A Code node calculates the calendar deadlines - one month under Art. 12 (3), a reminder on day 20, and the date until which an extension could still be announced - and the case is written to a Google Sheet that serves as the deadline register.\n\nFrom there the workflow splits into two branches.\n\nThe handling branch mails the data protection officer a summary with two resume links and then stops at a Wait node. Nothing is collected and nothing is sent while it waits. Only after someone clicks \"identity confirmed\" does the workflow query the internal data sources, build a draft along the eight mandatory items of Art. 15 (1), list the sources that still need manual research, and mail that draft back to the data protection officer. It never goes to the requester. Sending data to the wrong person is itself a reportable breach.\n\nThe deadline branch waits until day 20, looks the case up in the register and sends a reminder if it is not closed yet.\n\n## Setup steps\n\n1. Create a Google Sheet named \"Data subject requests\" with the columns used in the Google Sheets nodes.\n2. Replace YOUR_SHEET_ID and the example email addresses.\n3. Put your internal lookup endpoint into the node \"Query internal data sources\". Without it the workflow still runs and flags the research as manual.\n4. Adjust the list of systems in the node \"Assemble the disclosure draft\" - completeness of the answer depends on it.\n5. Connect your Google Sheets and SMTP credentials.",
+        "height": 760,
+        "width": 460
+      },
+      "id": "note-main",
+      "name": "Documentation",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -140,
+        -60
+      ]
+    },
+    {
+      "parameters": {
+        "content": "**Intake and deadlines**\n\nThe form records one request. The Code node computes the one month deadline as a calendar month, not as 30 days, adds warnings for late or implausible entries and writes the case to the register.",
+        "height": 220,
+        "width": 700,
+        "color": 3
+      },
+      "id": "note-a",
+      "name": "Section intake",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        340,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "content": "**The identity gate**\n\nThe data protection officer gets the case summary with two resume links. The Wait node holds the execution until someone clicks. No data is collected before that click.",
+        "height": 280,
+        "width": 640,
+        "color": 3
+      },
+      "id": "note-b",
+      "name": "Section identity gate",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1060,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "content": "**Draft, never a release**\n\nThe internal lookup runs, the draft follows the eight mandatory items of Art. 15 (1) and lists sources still needing manual research. The draft is mailed to the data protection officer only, never to the requester.",
+        "height": 220,
+        "width": 780,
+        "color": 3
+      },
+      "id": "note-c",
+      "name": "Section draft",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1710,
+        -20
+      ]
+    },
+    {
+      "parameters": {
+        "content": "**Identity not confirmed**\n\nNothing is looked up. The case is flagged for a proof request under Art. 12 (6) - ask for the minimum needed. The deadline keeps running.",
+        "height": 180,
+        "width": 340,
+        "color": 3
+      },
+      "id": "note-e",
+      "name": "Section proof request",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1710,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "content": "**Deadline watch**\n\nThis branch runs in parallel from the start. It waits until day 20, reads the case back from the register and only sends a reminder while the column \"Closed on\" is still empty.",
+        "height": 300,
+        "width": 900,
+        "color": 3
+      },
+      "id": "note-d",
+      "name": "Section deadline watch",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1040,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "path": "data-subject-request",
+        "formTitle": "Data subject request under Art. 15 GDPR",
+        "formDescription": "Records an incoming request for access. Filled in by the data subject or by whoever received the request. The identity is verified separately afterwards - no data is handed out through this form.",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Name of the data subject",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Email of the data subject",
+              "fieldType": "email",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Postal address",
+              "fieldType": "textarea",
+              "requiredField": false
+            },
+            {
+              "fieldLabel": "Date the request was received",
+              "fieldType": "date",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Channel the request arrived through",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "Email"
+                  },
+                  {
+                    "option": "Letter"
+                  },
+                  {
+                    "option": "Phone (confirmed in writing)"
+                  },
+                  {
+                    "option": "In person"
+                  },
+                  {
+                    "option": "Contact form"
+                  }
+                ]
+              },
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Scope of the request",
+              "fieldType": "textarea",
+              "placeholder": "Verbatim wording of the request. Does it cover all data or only one specific case?",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Copy of the data requested (Art. 15 (3))?",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "Yes"
+                  },
+                  {
+                    "option": "No"
+                  },
+                  {
+                    "option": "Not clear"
+                  }
+                ]
+              },
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Known relationship",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "Yes, current customer"
+                  },
+                  {
+                    "option": "Yes, former customer"
+                  },
+                  {
+                    "option": "Yes, applicant or former employee"
+                  },
+                  {
+                    "option": "No known relationship"
+                  },
+                  {
+                    "option": "Unclear"
+                  }
+                ]
+              },
+              "requiredField": true
+            }
+          ]
+        },
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "trigger-form",
+      "name": "Log a data subject request",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
+      "position": [
+        400,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// The one month deadline in Art. 12 (3) GDPR is a calendar month, not 30 days.\n// That is why setMonth is used: 31 January plus one month is 28 or 29 February,\n// not 2 March. Counting 30 days is wrong in four months of the year.\nfunction plusOneMonth(d) {\n  const target = new Date(d.getTime());\n  const day = target.getDate();\n  target.setMonth(target.getMonth() + 1);\n  if (target.getDate() < day) target.setDate(0); // pull an overflow back to the end of the month\n  return target;\n}\nconst iso = (d) => d.toISOString().slice(0, 10);\n\nconst out = [];\nfor (const entry of $input.all()) {\n  const f = entry.json || {};\n  const rawReceived = String(f['Date the request was received'] || '').trim();\n  const received = rawReceived ? new Date(rawReceived) : new Date();\n  const valid = !isNaN(received.getTime());\n  const start = valid ? received : new Date();\n\n  const deadline = plusOneMonth(start);\n  const reminder = new Date(start.getTime() + 20 * 24 * 60 * 60 * 1000);\n  const extension = plusOneMonth(plusOneMonth(deadline));\n\n  const notes = [];\n  if (!valid) notes.push('Date received could not be parsed - today was used instead, please check');\n  if (valid && start.getTime() > Date.now() + 86400000) notes.push('Date received lies in the future - check for a typo');\n  // A request logged late is the most common reason for a missed deadline.\n  const daysOpen = Math.floor((Date.now() - start.getTime()) / 86400000);\n  if (daysOpen > 20) notes.push('The request came in ' + daysOpen + ' days ago - the deadline is close, handle it now');\n  if (String(f['Known relationship'] || '').startsWith('No')) notes.push('No known relationship - a negative answer is an answer too and bound to the same deadline');\n  if (String(f['Copy of the data requested (Art. 15 (3))?'] || '') === 'Not clear') notes.push('Unclear whether a copy under Art. 15 (3) is requested - ask the requester');\n\n  const serial = String(Date.now()).slice(-6);\n  out.push({\n    json: {\n      case_id: 'DSR-' + start.getFullYear() + '-' + serial,\n      received_date: iso(start),\n      deadline_date: iso(deadline),\n      reminder_date: iso(reminder),\n      extension_possible_until: iso(extension),\n      name: String(f['Name of the data subject'] || '').trim(),\n      email: String(f['Email of the data subject'] || '').trim(),\n      postal_address: String(f['Postal address'] || '').trim(),\n      channel: String(f['Channel the request arrived through'] || ''),\n      scope: String(f['Scope of the request'] || '').trim(),\n      copy_requested: String(f['Copy of the data requested (Art. 15 (3))?'] || ''),\n      relationship: String(f['Known relationship'] || ''),\n      status: 'Received - identity check pending',\n      identity_verified: 'no',\n      notes: notes.join(' | ')\n    }\n  });\n}\nreturn out;"
+      },
+      "id": "calc-deadlines",
+      "name": "Calculate the deadlines",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        620,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Data subject requests",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Case ID": "={{ $json.case_id }}",
+            "Received": "={{ $json.received_date }}",
+            "Deadline": "={{ $json.deadline_date }}",
+            "Reminder": "={{ $json.reminder_date }}",
+            "Name": "={{ $json.name }}",
+            "Email": "={{ $json.email }}",
+            "Channel": "={{ $json.channel }}",
+            "Scope": "={{ $json.scope }}",
+            "Copy requested": "={{ $json.copy_requested }}",
+            "Identity verified": "={{ $json.identity_verified }}",
+            "Status": "={{ $json.status }}",
+            "Notes": "={{ $json.notes }}",
+            "Handled by": "",
+            "Closed on": ""
+          }
+        },
+        "options": {}
+      },
+      "id": "sheet-create",
+      "name": "Create case in the register",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        840,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "n8n@example.com",
+        "toEmail": "dpo@example.com",
+        "subject": "=Identity check required - data subject request {{ $('Calculate the deadlines').item.json.case_id }}",
+        "emailFormat": "text",
+        "text": "=A data subject request under Art. 15 GDPR came in. The case is waiting for your approval - nothing has been collected and nothing has been sent.\n\nCase: {{ $('Calculate the deadlines').item.json.case_id }}\nReceived: {{ $('Calculate the deadlines').item.json.received_date }}\nDeadline (Art. 12 (3) GDPR): {{ $('Calculate the deadlines').item.json.deadline_date }}\nAn extension could be announced until: {{ $('Calculate the deadlines').item.json.extension_possible_until }}\n\nRequester: {{ $('Calculate the deadlines').item.json.name }}\nEmail: {{ $('Calculate the deadlines').item.json.email }}\nPostal address: {{ $('Calculate the deadlines').item.json.postal_address || 'not given' }}\nChannel: {{ $('Calculate the deadlines').item.json.channel }}\nKnown relationship: {{ $('Calculate the deadlines').item.json.relationship }}\nCopy requested (Art. 15 (3)): {{ $('Calculate the deadlines').item.json.copy_requested }}\n\nWording of the request:\n{{ $('Calculate the deadlines').item.json.scope }}\n\nAutomatic notes: {{ $('Calculate the deadlines').item.json.notes || 'none' }}\n\nPLEASE VERIFY THE IDENTITY FIRST.\nWhere there are reasonable doubts, ask for additional information (Art. 12 (6) GDPR) - only as much as necessary, no blanket request for an ID document. Matching the request to an existing account or case is usually enough.\n\nIdentity confirmed, start the research:\n{{ $execution.resumeUrl }}?confirmed=yes\n\nIdentity NOT confirmed, ask for proof:\n{{ $execution.resumeUrl }}?confirmed=no\n\nDo not forward these links - they release the case.\n\nSent automatically by n8n. This workflow structures the handling, it does not replace the legal assessment of the individual case.",
+        "options": {}
+      },
+      "id": "mail-identity",
+      "name": "Request the identity check",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        1060,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "resume": "webhook",
+        "limitWaitTime": true,
+        "limitType": "afterTimeInterval",
+        "resumeAmount": 25,
+        "resumeUnit": "days",
+        "options": {}
+      },
+      "id": "wait-approval",
+      "name": "Wait for manual approval",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1280,
+        180
+      ],
+      "webhookId": "a1f4c0d2-9b3e-4c11-8f7a-2d6e5b0c4931"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "confirmed",
+              "leftValue": "={{ $json.query?.confirmed }}",
+              "rightValue": "yes",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-identity",
+      "name": "Identity confirmed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1500,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "YOUR_INTERNAL_DATA_SOURCE_API",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ case_id: $('Calculate the deadlines').item.json.case_id, email: $('Calculate the deadlines').item.json.email, name: $('Calculate the deadlines').item.json.name, purpose: 'Right of access under Art. 15 GDPR' }) }}",
+        "options": {
+          "timeout": 60000,
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "query-sources",
+      "name": "Query internal data sources",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1720,
+        80
+      ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 2
+    },
+    {
+      "parameters": {
+        "jsCode": "// Art. 15 (1) GDPR lists eight mandatory items. An answer that only contains\n// the data itself is incomplete, so this node builds a skeleton along (a) to\n// (h) that the responsible person fills in or confirms. The list of systems is\n// the real crux: forgotten sources are the most common reason for an\n// incomplete answer.\nconst dsrCase = $('Calculate the deadlines').item.json;\nconst reply = $input.first().json || {};\n\n// Adjust this list to your own system landscape.\nconst SOURCES = ['CRM', 'ERP / inventory management', 'Newsletter tool', 'Ticket system / support', 'Accounting', 'Applicant tracking', 'Phone system / call notes', 'Backups'];\n\nconst hits = Array.isArray(reply.hits) ? reply.hits : (Array.isArray(reply.results) ? reply.results : []);\nconst queried = hits.map(h => String(h.source || h.system || '')).filter(Boolean);\nconst openSources = SOURCES.filter(s => !queried.some(q => q.toLowerCase().includes(s.toLowerCase().split(' ')[0])));\nconst apiReachable = hits.length > 0 || Array.isArray(reply.hits);\n\nconst l = [];\nl.push('# Draft answer under Art. 15 GDPR - ' + dsrCase.case_id);\nl.push('');\nl.push('Requester: ' + dsrCase.name + ' (' + dsrCase.email + ')');\nl.push('Received: ' + dsrCase.received_date + ' | Deadline: ' + dsrCase.deadline_date);\nl.push('Identity: confirmed by the responsible person on ' + new Date().toISOString().slice(0, 10));\nl.push('');\nl.push('## Mandatory items under Art. 15 (1)');\nl.push('a) Purposes of the processing: [fill in]');\nl.push('b) Categories of personal data concerned: [fill in]');\nl.push('c) Recipients or categories of recipients, including third countries: [fill in]');\nl.push('d) Envisaged storage period or the criteria used to determine it: [fill in]');\nl.push('e) Note on rectification, erasure, restriction and objection: insert standard text');\nl.push('f) Note on the right to lodge a complaint with a supervisory authority: insert standard text');\nl.push('g) Source of the data where it was not collected from the person: [fill in]');\nl.push('h) Automated decision making including profiling: [fill in, or deny explicitly]');\nl.push('');\nl.push('## Research result per data source');\nif (hits.length === 0) {\n  l.push('- No machine readable results. Query every source manually and document it here.');\n} else {\n  for (const h of hits) {\n    l.push('- ' + (h.source || h.system || 'unnamed source') + ': ' + (h.count ?? h.records ?? 'unknown') + ' records' + (h.note ? ' (' + h.note + ')' : ''));\n  }\n}\nl.push('');\nl.push('## Sources still to be checked manually');\nif (openSources.length === 0) l.push('- none');\nfor (const s of openSources) l.push('- ' + s + ' [enter the result, document a nil return as well]');\nl.push('');\nl.push('## Check before sending');\nl.push('- Rights and freedoms of others (Art. 15 (4)): redact or remove third party data');\nl.push('- Check national restrictions on the right of access');\nl.push('- Copy under Art. 15 (3) requested: ' + dsrCase.copy_requested);\nl.push('- Secure delivery: encrypted or registered post, not plain email');\nl.push('- On refusal or partial answer: give reasons and point to the right to complain');\n\nconst warnings = [];\nif (!apiReachable) warnings.push('Data source API not reachable or not configured - do the research fully manually');\nif (openSources.length > 0) warnings.push(openSources.length + ' source(s) without a machine readable result');\n\nreturn [{\n  json: {\n    ...dsrCase,\n    identity_verified: 'yes',\n    status: 'Draft created - review and delivery pending',\n    open_sources: openSources.join(', '),\n    warnings: warnings.join(' | '),\n    draft: l.join('\\n')\n  }\n}];"
+      },
+      "id": "build-draft",
+      "name": "Assemble the disclosure draft",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1940,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Data subject requests",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "Case ID"
+          ],
+          "value": {
+            "Case ID": "={{ $json.case_id }}",
+            "Identity verified": "={{ $json.identity_verified }}",
+            "Status": "={{ $json.status }}",
+            "Notes": "={{ $json.warnings }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "sheet-update",
+      "name": "Update the register",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        2160,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "n8n@example.com",
+        "toEmail": "dpo@example.com",
+        "subject": "=Draft answer for {{ $json.case_id }} - do not send unreviewed",
+        "emailFormat": "text",
+        "text": "=The research for case {{ $json.case_id }} is finished. The draft is below.\n\nThis draft deliberately goes to you only and not to the data subject. Send it after your review and approval.\n\nDeadline: {{ $json.deadline_date }}\nSources still open: {{ $json.open_sources || 'none' }}\nWarnings: {{ $json.warnings || 'none' }}\n\n{{ $json.draft }}\n\nNote: this workflow structures the handling and documents the deadlines. It does not replace the legal assessment of the individual case, in particular not the balancing under Art. 15 (4) GDPR and any national restrictions.\n\nSent automatically by n8n.",
+        "options": {}
+      },
+      "id": "mail-draft",
+      "name": "Send the draft internally",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        2380,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "status",
+              "name": "status",
+              "value": "Identity not confirmed - no data released",
+              "type": "string"
+            },
+            {
+              "id": "action",
+              "name": "next_step",
+              "value": "Ask for additional information to identify the requester (Art. 12 (6) GDPR). Only what is necessary. The one month deadline keeps running - document the request for proof.",
+              "type": "string"
+            },
+            {
+              "id": "case",
+              "name": "case_id",
+              "value": "={{ $('Calculate the deadlines').item.json.case_id }}",
+              "type": "string"
+            },
+            {
+              "id": "due",
+              "name": "deadline",
+              "value": "={{ $('Calculate the deadlines').item.json.deadline_date }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "ask-proof",
+      "name": "Ask for additional proof",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1720,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "resume": "specificTime",
+        "dateTime": "={{ $('Calculate the deadlines').item.json.reminder_date }}T08:00:00"
+      },
+      "id": "wait-day20",
+      "name": "Wait until day 20",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1060,
+        560
+      ],
+      "webhookId": "b7c2e8a4-5d19-4f63-9a02-7e1b3c8d5406"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Data subject requests",
+          "mode": "name"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "Case ID",
+              "lookupValue": "={{ $('Calculate the deadlines').item.json.case_id }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "sheet-status",
+      "name": "Look up the case status",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1280,
+        560
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "open",
+              "leftValue": "={{ $json['Closed on'] }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "empty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-open",
+      "name": "Case still open?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1500,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "n8n@example.com",
+        "toEmail": "dpo@example.com",
+        "ccEmail": "management@example.com",
+        "subject": "=Deadline reminder: request {{ $('Calculate the deadlines').item.json.case_id }} is due on {{ $('Calculate the deadlines').item.json.deadline_date }}",
+        "emailFormat": "text",
+        "text": "=Case {{ $('Calculate the deadlines').item.json.case_id }} is still not marked as closed in the deadline register.\n\nReceived: {{ $('Calculate the deadlines').item.json.received_date }}\nDeadline under Art. 12 (3) GDPR: {{ $('Calculate the deadlines').item.json.deadline_date }}\nRequester: {{ $('Calculate the deadlines').item.json.name }} ({{ $('Calculate the deadlines').item.json.email }})\n\nAbout ten days are left. Two options:\n1. Answer within the deadline.\n2. Use the extension of up to two further months (Art. 12 (3) sentence 2 GDPR). That requires informing the data subject about the extension AND its reasons WITHIN THE FIRST MONTH - there is no retroactive extension. It would be possible until {{ $('Calculate the deadlines').item.json.extension_possible_until }}.\n\nOnce the case is done, fill the column \"Closed on\" in the sheet, otherwise this workflow keeps reminding you.\n\nSent automatically by n8n. Not legal advice.",
+        "options": {}
+      },
+      "id": "mail-reminder",
+      "name": "Send a deadline reminder",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        1720,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "status",
+              "name": "deadline_watch",
+              "value": "The case was already marked as closed on day 20 - no reminder needed",
+              "type": "string"
+            },
+            {
+              "id": "case",
+              "name": "case_id",
+              "value": "={{ $('Calculate the deadlines').item.json.case_id }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "already-closed",
+      "name": "Case already closed",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1720,
+        700
+      ]
+    }
+  ],
+  "connections": {
+    "Log a data subject request": {
+      "main": [
+        [
+          {
+            "node": "Calculate the deadlines",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calculate the deadlines": {
+      "main": [
+        [
+          {
+            "node": "Create case in the register",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create case in the register": {
+      "main": [
+        [
+          {
+            "node": "Request the identity check",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Wait until day 20",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Request the identity check": {
+      "main": [
+        [
+          {
+            "node": "Wait for manual approval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait for manual approval": {
+      "main": [
+        [
+          {
+            "node": "Identity confirmed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Identity confirmed?": {
+      "main": [
+        [
+          {
+            "node": "Query internal data sources",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ask for additional proof",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query internal data sources": {
+      "main": [
+        [
+          {
+            "node": "Assemble the disclosure draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assemble the disclosure draft": {
+      "main": [
+        [
+          {
+            "node": "Update the register",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update the register": {
+      "main": [
+        [
+          {
+            "node": "Send the draft internally",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait until day 20": {
+      "main": [
+        [
+          {
+            "node": "Look up the case status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Look up the case status": {
+      "main": [
+        [
+          {
+            "node": "Case still open?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Case still open?": {
+      "main": [
+        [
+          {
+            "node": "Send a deadline reminder",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Case already closed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

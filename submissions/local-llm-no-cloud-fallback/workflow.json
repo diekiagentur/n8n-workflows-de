@@ -1,0 +1,506 @@
+{
+  "name": "Answer webhook requests with a local Ollama model and no cloud fallback",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## How it works\n\nA webhook takes a JSON body, an IF node checks that the question is present and that question plus context stay inside the context window, and an HTTP Request node calls a locally hosted Ollama model on the same machine. A Code node inspects the reply, a Google Sheets node logs metadata only - timestamp, model, character counts, duration - and the answer goes back through Respond to Webhook.\n\nThe reply check matters more than it looks. Ollama answers with HTTP 200 even when the requested model is not loaded or the context overflows; the body then carries an error string or an empty answer. Without that check the webhook returns an empty result and the calling application shows it as a valid one.\n\nThe fallback is deliberately NOT a cloud model. If Ollama is unreachable, the workflow answers HTTP 503 with the reason and a short list of diagnostic steps. A silent failover to a hosted API would be convenient and exactly for that reason dangerous: the data you self-host to keep out of the cloud would leave the building on the first outage, unnoticed.\n\n## Setup steps\n\n1. Install Ollama on the same host as n8n and pull a model, for example llama3.1:8b.\n2. In \"Ask the local model\", replace YOUR_OLLAMA_PORT (default 11434) and YOUR_MODEL_NAME. If n8n runs in Docker, localhost is the container - use host.docker.internal instead.\n3. Create a Google Sheet named \"AI usage\" with the columns timestamp, model, input_chars, answer_chars, duration_ms, status, and set YOUR_SHEET_ID.\n4. Give the webhook URL to the calling application. Expected body: { \"question\": \"...\", \"context\": \"optional\", \"system\": \"optional\" }.",
+        "height": 700,
+        "width": 460
+      },
+      "id": "note-main",
+      "name": "Documentation",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -140,
+        -60
+      ]
+    },
+    {
+      "parameters": {
+        "content": "**Request and validation**\n\nThe webhook takes question, optional context and an optional system prompt. The IF node rejects empty questions and payloads above 24000 characters before the model is called, and answers HTTP 400.",
+        "height": 200,
+        "width": 440,
+        "color": 3
+      },
+      "id": "note-a",
+      "name": "Section request",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        340,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "content": "**The local call**\n\nA plain HTTP request to Ollama on localhost, temperature 0.2, timeout 120 seconds because an 8B model on CPU needs 10 to 60 seconds. The Code node then checks the body for an error string or an empty answer.",
+        "height": 260,
+        "width": 440,
+        "color": 3
+      },
+      "id": "note-b",
+      "name": "Section local call",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        800,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "content": "**Success path**\n\nOnly metadata is written to the sheet: timestamp, model, character counts and duration. No prompts, no answers. The response tells the caller that the request never left the premises.",
+        "height": 220,
+        "width": 620,
+        "color": 3
+      },
+      "id": "note-c",
+      "name": "Section success",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1260,
+        -40
+      ]
+    },
+    {
+      "parameters": {
+        "content": "**Input error**\n\nBad payloads get HTTP 400 with the expected body format instead of a model call.",
+        "height": 160,
+        "width": 380,
+        "color": 3
+      },
+      "id": "note-e",
+      "name": "Section input error",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        790,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "content": "**No cloud fallback on purpose**\n\nBoth failure paths end here: HTTP 503, the reason, and four diagnostic commands. There is no automatic failover to a hosted API, because that would send exactly the data you self-host to keep private.",
+        "height": 240,
+        "width": 700,
+        "color": 3
+      },
+      "id": "note-d",
+      "name": "Section no fallback",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1200,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "local-ai",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-request",
+      "name": "Receive the request",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        380,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "question-present",
+              "leftValue": "={{ ($json.body?.question || '').trim().length }}",
+              "rightValue": 3,
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            },
+            {
+              "id": "not-too-long",
+              "leftValue": "={{ (($json.body?.question || '') + ($json.body?.context || '')).length }}",
+              "rightValue": 24000,
+              "operator": {
+                "type": "number",
+                "operation": "lte"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-input",
+      "name": "Input usable?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        600,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:YOUR_OLLAMA_PORT/api/chat",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'YOUR_MODEL_NAME', stream: false, options: { temperature: 0.2, num_ctx: 8192 }, messages: [ { role: 'system', content: $json.body.system || 'You are a factual assistant for a company. Answer briefly and precisely. If information is missing, say so explicitly instead of guessing.' }, { role: 'user', content: ($json.body.context ? 'Context:\\n' + $json.body.context + '\\n\\nQuestion:\\n' : '') + $json.body.question } ] }) }}",
+        "options": {
+          "timeout": 120000,
+          "response": {
+            "response": {
+              "neverError": false
+            }
+          }
+        }
+      },
+      "id": "http-ollama",
+      "name": "Ask the local model",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        820,
+        220
+      ],
+      "onError": "continueErrorOutput",
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "jsCode": "// The reply of the local model is checked before it reaches the caller.\n// Why: Ollama answers with HTTP 200 even when the requested model is not\n// loaded or the context overflows - the body then contains an error message\n// or an empty string. Without this check the webhook returns an empty answer\n// and the calling application displays it as a valid result.\nconst raw = $input.first().json || {};\nconst request = $('Receive the request').first().json.body || {};\n\n// Depending on the endpoint Ollama returns /api/chat (message.content) or /api/generate (response).\nconst text = String(raw.message?.content ?? raw.response ?? '').trim();\nconst errorText = String(raw.error || '').trim();\n\nconst input = String(request.question || '');\nconst usable = errorText === '' && text.length >= 2;\n\nreturn [{\n  json: {\n    answer: text,\n    usable,\n    model: raw.model || 'unknown',\n    input_chars: input.length,\n    answer_chars: text.length,\n    // Ollama reports the duration in nanoseconds - milliseconds are enough for the log.\n    duration_ms: raw.total_duration ? Math.round(raw.total_duration / 1e6) : null,\n    answer_tokens: raw.eval_count ?? null,\n    timestamp: new Date().toISOString(),\n    processing: 'local',\n    failure_reason: usable\n      ? ''\n      : (errorText || 'The local model returned an empty answer - the model is probably not loaded or the context is too long.'),\n  },\n}];"
+      },
+      "id": "code-check",
+      "name": "Check the model reply",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        140
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "usable",
+              "leftValue": "={{ $json.usable }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-answer",
+      "name": "Reply usable?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1260,
+        140
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "AI usage",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "timestamp": "={{ $json.timestamp }}",
+            "model": "={{ $json.model }}",
+            "input_chars": "={{ $json.input_chars }}",
+            "answer_chars": "={{ $json.answer_chars }}",
+            "duration_ms": "={{ $json.duration_ms }}",
+            "status": "success (local)"
+          }
+        },
+        "options": {}
+      },
+      "id": "sheet-log",
+      "name": "Log metadata without content",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1480,
+        40
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: 'ok', processing: 'local', model: $('Check the model reply').item.json.model, answer: $('Check the model reply').item.json.answer, duration_ms: $('Check the model reply').item.json.duration_ms, note: 'Answer from a locally hosted AI model. The request never left the premises.' }) }}",
+        "options": {}
+      },
+      "id": "respond-ok",
+      "name": "Return the answer",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1700,
+        40
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "status",
+              "name": "status",
+              "value": "local_model_unavailable",
+              "type": "string"
+            },
+            {
+              "id": "code",
+              "name": "http_status",
+              "value": 503,
+              "type": "number"
+            },
+            {
+              "id": "message",
+              "name": "message",
+              "value": "=The locally hosted model did not answer the request: {{ $json.failure_reason || $json.error?.message || $json.message || 'service not reachable' }}",
+              "type": "string"
+            },
+            {
+              "id": "no-fallback",
+              "name": "note",
+              "value": "There is deliberately NO automatic failover to a cloud provider. The request was not transmitted to any third party. Please check the Ollama service (is the process running, is the model loaded, is the port reachable?) and send the request again.",
+              "type": "string"
+            },
+            {
+              "id": "checklist",
+              "name": "diagnostics",
+              "value": "1. systemctl status ollama  2. ollama list  3. curl http://127.0.0.1:YOUR_OLLAMA_PORT/api/tags  4. n8n in Docker: use host.docker.internal instead of 127.0.0.1",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "set-outage",
+      "name": "Report the outage without cloud fallback",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1260,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "status",
+              "name": "status",
+              "value": "invalid_input",
+              "type": "string"
+            },
+            {
+              "id": "code",
+              "name": "http_status",
+              "value": 400,
+              "type": "number"
+            },
+            {
+              "id": "message",
+              "name": "message",
+              "value": "Field 'question' is missing, too short, or question and context together exceed 24000 characters (context window of the local model).",
+              "type": "string"
+            },
+            {
+              "id": "note",
+              "name": "note",
+              "value": "For longer texts, split the content beforehand or load a model with a larger context window.",
+              "type": "string"
+            },
+            {
+              "id": "checklist",
+              "name": "diagnostics",
+              "value": "Body format: { \"question\": \"...\", \"context\": \"optional\", \"system\": \"optional\" }",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "set-input-error",
+      "name": "Report the input error",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        820,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: $json.status, processing: 'local', message: $json.message, note: $json.note, diagnostics: $json.diagnostics }) }}",
+        "options": {
+          "responseCode": "={{ $json.http_status }}"
+        }
+      },
+      "id": "respond-error",
+      "name": "Return the error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1700,
+        480
+      ]
+    }
+  ],
+  "connections": {
+    "Receive the request": {
+      "main": [
+        [
+          {
+            "node": "Input usable?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Input usable?": {
+      "main": [
+        [
+          {
+            "node": "Ask the local model",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Report the input error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ask the local model": {
+      "main": [
+        [
+          {
+            "node": "Check the model reply",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Report the outage without cloud fallback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check the model reply": {
+      "main": [
+        [
+          {
+            "node": "Reply usable?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reply usable?": {
+      "main": [
+        [
+          {
+            "node": "Log metadata without content",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Report the outage without cloud fallback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log metadata without content": {
+      "main": [
+        [
+          {
+            "node": "Return the answer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Report the outage without cloud fallback": {
+      "main": [
+        [
+          {
+            "node": "Return the error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Report the input error": {
+      "main": [
+        [
+          {
+            "node": "Return the error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}
