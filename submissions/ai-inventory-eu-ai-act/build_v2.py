@@ -18,12 +18,29 @@ import json
 import pathlib
 
 Y = 0  # Basiszeile fuer den Intake-Strang
-G = 900  # Basiszeile fuer den Governance-Strang
+G = 1040  # Basiszeile fuer den Governance-Strang
 
 
 def sticky(id_, x, y, w, h, farbe, text):
+    """Notizzettel mit berechneter Hoehe.
+
+    Eine zu knapp bemessene Notiz laesst den Text ueber den Rand laufen und ueber
+    dem naechsten Node landen — genau der Befund, mit dem n8n Fassung 2
+    zurueckgegeben hat. Deshalb wird die Hoehe aus dem Text hergeleitet und `h`
+    nur noch als Untergrenze verwendet.
+    """
+    zeichen_pro_zeile = max(20, int(w / 7.6))  # Sticky-Schrift ~14 px
+    zeilen = 0
+    for absatz in text.split("\n"):
+        if not absatz.strip():
+            zeilen += 1
+            continue
+        # Ueberschriften stehen groesser und brauchen mehr Platz.
+        faktor = 1.8 if absatz.startswith("#") else 1.0
+        zeilen += max(1, -(-len(absatz) // zeichen_pro_zeile)) * faktor
+    hoehe = max(h, int(zeilen * 24) + 56)
     return {
-        "parameters": {"width": w, "height": h, "color": farbe, "content": text},
+        "parameters": {"width": w, "height": hoehe, "color": farbe, "content": text},
         "id": id_, "name": id_, "type": "n8n-nodes-base.stickyNote",
         "typeVersion": 1, "position": [x, y],
     }
@@ -292,6 +309,44 @@ SYSTEMPROMPT = (
 )
 
 
+# Ein Node belegt auf dem Canvas mehr als sein Symbol (100x100): der Name steht
+# darunter. Zwischen zwei Nodes reicht dieses Mass; gegenueber einem Notizzettel
+# wird die Flaeche zusaetzlich um LUFT aufgeblasen — dort ist ein zweiter Befund
+# "text and nodes are overlapping" teurer als ein paar Pixel Leerraum.
+NODE_LINKS, NODE_OBEN, NODE_RECHTS, NODE_UNTEN = 20, 10, 120, 145
+LUFT = 60
+
+
+def _rechtecke(nodes):
+    for n in nodes:
+        x, y = n["position"]
+        if n["type"] == "n8n-nodes-base.stickyNote":
+            p = n["parameters"]
+            yield n["name"], "notiz", (x, y, x + p["width"], y + p["height"])
+        else:
+            yield n["name"], "node", (x - NODE_LINKS, y - NODE_OBEN,
+                                      x + NODE_RECHTS, y + NODE_UNTEN)
+
+
+def pruefe_layout(nodes):
+    """Bricht ab, wenn sich irgendetwas auf dem Canvas ueberlappt."""
+    kaesten = list(_rechtecke(nodes))
+    schneidet = lambda a, b: not (a[2] <= b[0] or b[2] <= a[0] or a[3] <= b[1] or b[3] <= a[1])
+    aufblasen = lambda r: (r[0] - LUFT, r[1] - LUFT, r[2] + LUFT, r[3] + LUFT)
+    befunde = []
+    for i, (name_a, art_a, a) in enumerate(kaesten):
+        for name_b, art_b, b in kaesten[i + 1:]:
+            gemischt = art_a != art_b
+            ka, kb = (aufblasen(a), b) if gemischt and art_a == "node" else \
+                     (a, aufblasen(b)) if gemischt else (a, b)
+            if schneidet(ka, kb):
+                wie = "steht zu nah an" if gemischt else "ueberlappt"
+                befunde.append(f"{art_a} {name_a!r} {wie} {art_b} {name_b!r}")
+    if befunde:
+        raise SystemExit("Layout-Kollisionen:\n  " + "\n  ".join(befunde))
+    return len(kaesten)
+
+
 def main():
     nodes = []
     conns = {}
@@ -311,7 +366,7 @@ def main():
         return name
 
     # ---------- Strang 1: Meldung entgegennehmen und einstufen ----------
-    node("Report an AI system", "n8n-nodes-base.formTrigger", 2.2, -260, Y, {
+    node("Report an AI system", "n8n-nodes-base.formTrigger", 2.2, -400, Y, {
         "formTitle": "Report an AI system",
         "formDescription": ("Every AI system used in the company has to be listed — bought, "
                             "built or embedded in another tool. Two minutes now save a scramble "
@@ -333,22 +388,22 @@ def main():
         "options": {},
     })
 
-    node("Normalize the report", "n8n-nodes-base.code", 2, -40, Y,
+    node("Normalize the report", "n8n-nodes-base.code", 2, -160, Y,
          {"jsCode": NORMALISIEREN.strip()})
 
-    node("Classify against the EU AI Act", "@n8n/n8n-nodes-langchain.agent", 1.7, 200, Y, {
+    node("Classify against the EU AI Act", "@n8n/n8n-nodes-langchain.agent", 1.7, 80, Y, {
         "promptType": "define",
         "text": "={{ $json.briefing }}",
         "hasOutputParser": True,
         "options": {"systemMessage": SYSTEMPROMPT},
     })
-    node("Language model", "@n8n/n8n-nodes-langchain.lmChatOpenAi", 1.2, 120, Y + 220,
+    node("Language model", "@n8n/n8n-nodes-langchain.lmChatOpenAi", 1.2, -40, Y + 300,
          {"model": {"__rl": True, "value": "gpt-4.1-mini", "mode": "list"},
           "options": {"temperature": 0}})
     node("Structured classification", "@n8n/n8n-nodes-langchain.outputParserStructured", 1.2,
-         320, Y + 220,
+         180, Y + 300,
          {"schemaType": "manual", "inputSchema": json.dumps(SCHEMA, indent=2)})
-    node("ai_act_reference", "@n8n/n8n-nodes-langchain.toolCode", 1.1, 500, Y + 220, {
+    node("ai_act_reference", "@n8n/n8n-nodes-langchain.toolCode", 1.1, 400, Y + 300, {
         "name": "ai_act_reference",
         "description": ("Look up the EU AI Act. Query with one keyword: prohibited, annex_iii, "
                         "transparency, dates, penalties, or an application area such as "
@@ -358,10 +413,10 @@ def main():
         "jsCode": REFERENZ.strip(),
     })
 
-    node("Cross-check the classification", "n8n-nodes-base.code", 2, 480, Y,
+    node("Cross-check the classification", "n8n-nodes-base.code", 2, 400, Y,
          {"jsCode": GEGENPRUEFUNG.strip()})
 
-    node("Route by risk class", "n8n-nodes-base.switch", 3, 720, Y, {
+    node("Route by risk class", "n8n-nodes-base.switch", 3, 640, Y, {
         "rules": {"values": [
             {"conditions": {"options": {"caseSensitive": False, "version": 2},
                             "conditions": [{"leftValue": "={{ $json.risk_class }}", "rightValue": "prohibited",
@@ -380,22 +435,22 @@ def main():
     })
 
     pfade = [
-        ("Stop and escalate", 0, 960, Y - 300,
+        ("Stop and escalate", 0, 960, Y - 480,
          "Do not put this system into use. Art. 5 practices have been banned since "
          "2 February 2025; penalties reach EUR 35m or 7% of worldwide annual turnover. "
          "Document the decision and, if the system is already running, switch it off.",
          "Prohibited practice reported: "),
-        ("Assign high-risk duties", 1, 960, Y - 110,
+        ("Assign high-risk duties", 1, 960, Y - 280,
          "High-risk duties apply: risk management under Art. 9, data governance under Art. 10, "
          "technical documentation under Art. 11, logging under Art. 12, human oversight under "
          "Art. 14, and registration in the EU database. Annex III duties have applied since "
          "2 August 2026.",
          "High-risk AI system reported: "),
-        ("Assign transparency duties", 2, 960, Y + 80,
+        ("Assign transparency duties", 2, 960, Y - 80,
          "Transparency duties under Art. 50 apply: tell people they are dealing with an AI "
          "system, mark synthetic content machine-readably, disclose deep fakes. In force since "
          "2 August 2026.", None),
-        ("Log as minimal risk", 3, 960, Y + 270,
+        ("Log as minimal risk", 3, 960, Y + 120,
          "No specific duties beyond the AI literacy obligation of Art. 4, in force since "
          "2 February 2025. Keep the entry — classifications change when the use changes.", None),
     ]
@@ -413,7 +468,7 @@ def main():
         if betreff:
             verbinde(name, "Notify the responsible manager")
 
-    node("Notify the responsible manager", "n8n-nodes-base.emailSend", 2.1, 1220, Y - 210, {
+    node("Notify the responsible manager", "n8n-nodes-base.emailSend", 2.1, 1280, Y - 380, {
         "fromEmail": "ai-governance@example.com",
         "toEmail": "={{ $json.owner_email }}",
         "subject": "={{ $json.risk_class === 'prohibited' ? 'Prohibited practice reported: ' : 'High-risk AI system reported: ' }}{{ $json.system_name }}",
@@ -428,7 +483,7 @@ def main():
         "options": {},
     })
 
-    node("Append to the AI inventory", "n8n-nodes-base.googleSheets", 4.5, 1220, Y + 90, {
+    node("Append to the AI inventory", "n8n-nodes-base.googleSheets", 4.5, 1280, Y + 20, {
         "operation": "append",
         "documentId": {"__rl": True, "value": "", "mode": "list"},
         "sheetName": {"__rl": True, "value": "", "mode": "list"},
@@ -437,23 +492,23 @@ def main():
     })
 
     # ---------- Strang 2: Governance-Lauf ----------
-    node("Every month", "n8n-nodes-base.scheduleTrigger", 1.2, -260, G,
+    node("Every month", "n8n-nodes-base.scheduleTrigger", 1.2, -400, G,
          {"rule": {"interval": [{"field": "months", "triggerAtDayOfMonth": 1, "triggerAtHour": 7}]}})
-    node("Read the inventory", "n8n-nodes-base.googleSheets", 4.5, -40, G, {
+    node("Read the inventory", "n8n-nodes-base.googleSheets", 4.5, -160, G, {
         "documentId": {"__rl": True, "value": "", "mode": "list"},
         "sheetName": {"__rl": True, "value": "", "mode": "list"},
         "options": {},
     })
-    node("Find what is due", "n8n-nodes-base.code", 2, 200, G, {"jsCode": FAELLIG.strip()})
-    node("Anything to do?", "n8n-nodes-base.if", 2, 440, G, {
+    node("Find what is due", "n8n-nodes-base.code", 2, 80, G, {"jsCode": FAELLIG.strip()})
+    node("Anything to do?", "n8n-nodes-base.if", 2, 320, G, {
         "conditions": {"options": {"caseSensitive": True, "version": 2},
                        "conditions": [{"leftValue": "={{ $json.has_work }}", "rightValue": "true",
                                        "operator": {"type": "boolean", "operation": "true", "singleValue": True}}],
                        "combinator": "and"},
         "options": {},
     })
-    node("Build the review report", "n8n-nodes-base.code", 2, 680, G - 110, {"jsCode": BERICHT.strip()})
-    node("Send the governance report", "n8n-nodes-base.emailSend", 2.1, 920, G - 110, {
+    node("Build the review report", "n8n-nodes-base.code", 2, 580, G - 120, {"jsCode": BERICHT.strip()})
+    node("Send the governance report", "n8n-nodes-base.emailSend", 2.1, 820, G - 120, {
         "fromEmail": "ai-governance@example.com",
         "toEmail": "compliance@example.com",
         "subject": "={{ $json.subject }}",
@@ -461,7 +516,7 @@ def main():
         "html": "={{ $json.html }}",
         "options": {},
     })
-    node("Nothing due this month", "n8n-nodes-base.noOp", 1, 680, G + 110, {})
+    node("Nothing due this month", "n8n-nodes-base.noOp", 1, 580, G + 120, {})
 
     verbinde("Report an AI system", "Normalize the report")
     verbinde("Normalize the report", "Classify against the EU AI Act")
@@ -479,7 +534,7 @@ def main():
 
     # ---------- Erklaerende Zettel ----------
     nodes += [
-        sticky("Overview", -300, Y - 620, 760, 300, 4,
+        sticky("Overview", -400, Y - 800, 1000, 240, 4,
                "## Keep an EU AI Act inventory that survives an audit\n\n"
                "Art. 4 has required AI literacy since 2 February 2025, and since 2 August 2026 "
                "the transparency duties of Art. 50 and the Annex III high-risk duties apply. "
@@ -490,24 +545,24 @@ def main():
                "run makes sure nobody's entry quietly goes stale.\n\n"
                "**Setup:** OpenAI credentials, a Google Sheet with a header row matching the "
                "fields, and an SMTP account. Replace the two example addresses. Nothing else."),
-        sticky("Intake", -300, Y - 260, 400, 220, 7,
+        sticky("Intake", -400, Y - 420, 500, 200, 7,
                "### 1 — Intake\n\nThe form is deliberately short: seven fields, plain wording, no "
                "legal vocabulary. People fill in what they know; the classification is not their job.\n\n"
                "The Code node trims the input and builds one briefing block per system — a model "
                "reads field-per-line far more reliably than prose."),
-        sticky("Classification", 140, Y - 260, 560, 220, 5,
+        sticky("Classification", 160, Y - 420, 660, 200, 5,
                "### 2 — Classification, then contradiction\n\nThe agent looks the Act up through the "
                "`ai_act_reference` tool instead of reciting it from memory, and returns a structured "
                "verdict.\n\n**The Code node afterwards may only raise the class, never lower it.** "
                "Language models under-classify: a recruiting tool described as \"pre-sorting "
                "applications\" sounds harmless and is Annex III employment. Whatever it corrects, "
                "and anything above limited risk, is flagged for a human."),
-        sticky("Routing", 700, Y - 260, 700, 220, 3,
+        sticky("Routing", 880, Y - 860, 700, 200, 3,
                "### 3 — Four paths, not a yes/no\n\nEach class carries different duties, so each gets "
                "its own branch and its own text — the person who reported the system receives "
                "something actionable, not a label.\n\nProhibited and high-risk cases also alert the "
                "responsible manager. Everything lands in the same sheet: the inventory is the point."),
-        sticky("Governance", -300, G - 300, 1300, 240, 6,
+        sticky("Governance", -400, G - 420, 1300, 200, 6,
                "### 4 — The part most inventories skip\n\nA register built once and never touched is "
                "worthless on the day it matters. On the first of each month this branch reads the "
                "sheet, collects overdue reviews, upcoming ones and entries still waiting for a human "
@@ -523,11 +578,12 @@ def main():
         "settings": {"executionOrder": "v1"},
         "pinData": {},
     }
+    geprueft = pruefe_layout(nodes)
     ziel = pathlib.Path(__file__).parent / "workflow.json"
     ziel.write_text(json.dumps(wf, ensure_ascii=True, indent=2) + "\n", encoding="utf-8")
     fach = [n for n in nodes if n["type"] != "n8n-nodes-base.stickyNote"]
     print(f"=> {ziel.name}: {len(fach)} fachliche Nodes, {len(nodes) - len(fach)} Notizen, "
-          f"{len(conns)} Verbindungsquellen")
+          f"{len(conns)} Verbindungsquellen, {geprueft} Kaesten ueberlappungsfrei")
 
 
 if __name__ == "__main__":

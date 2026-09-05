@@ -62,7 +62,7 @@
       "type": "n8n-nodes-base.formTrigger",
       "typeVersion": 2.2,
       "position": [
-        -260,
+        -400,
         0
       ]
     },
@@ -75,7 +75,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -40,
+        -160,
         0
       ]
     },
@@ -93,7 +93,7 @@
       "type": "@n8n/n8n-nodes-langchain.agent",
       "typeVersion": 1.7,
       "position": [
-        200,
+        80,
         0
       ]
     },
@@ -113,8 +113,8 @@
       "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
       "typeVersion": 1.2,
       "position": [
-        120,
-        220
+        -40,
+        300
       ]
     },
     {
@@ -127,8 +127,8 @@
       "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
       "typeVersion": 1.2,
       "position": [
-        320,
-        220
+        180,
+        300
       ]
     },
     {
@@ -142,8 +142,8 @@
       "type": "@n8n/n8n-nodes-langchain.toolCode",
       "typeVersion": 1.1,
       "position": [
-        500,
-        220
+        400,
+        300
       ]
     },
     {
@@ -155,7 +155,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        480,
+        400,
         0
       ]
     },
@@ -235,7 +235,7 @@
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3,
       "position": [
-        720,
+        640,
         0
       ]
     },
@@ -265,7 +265,7 @@
       "typeVersion": 3.4,
       "position": [
         960,
-        -300
+        -480
       ]
     },
     {
@@ -294,7 +294,7 @@
       "typeVersion": 3.4,
       "position": [
         960,
-        -110
+        -280
       ]
     },
     {
@@ -323,7 +323,7 @@
       "typeVersion": 3.4,
       "position": [
         960,
-        80
+        -80
       ]
     },
     {
@@ -352,7 +352,7 @@
       "typeVersion": 3.4,
       "position": [
         960,
-        270
+        120
       ]
     },
     {
@@ -369,8 +369,8 @@
       "type": "n8n-nodes-base.emailSend",
       "typeVersion": 2.1,
       "position": [
-        1220,
-        -210
+        1280,
+        -380
       ]
     },
     {
@@ -398,8 +398,8 @@
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4.5,
       "position": [
-        1220,
-        90
+        1280,
+        20
       ]
     },
     {
@@ -419,8 +419,8 @@
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
       "position": [
-        -260,
-        900
+        -400,
+        1040
       ]
     },
     {
@@ -442,8 +442,8 @@
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4.5,
       "position": [
-        -40,
-        900
+        -160,
+        1040
       ]
     },
     {
@@ -455,8 +455,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        200,
-        900
+        80,
+        1040
       ]
     },
     {
@@ -486,8 +486,8 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [
-        440,
-        900
+        320,
+        1040
       ]
     },
     {
@@ -499,8 +499,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        680,
-        790
+        580,
+        920
       ]
     },
     {
@@ -517,8 +517,8 @@
       "type": "n8n-nodes-base.emailSend",
       "typeVersion": 2.1,
       "position": [
-        920,
-        790
+        820,
+        920
       ]
     },
     {
@@ -528,14 +528,14 @@
       "type": "n8n-nodes-base.noOp",
       "typeVersion": 1,
       "position": [
-        680,
-        1010
+        580,
+        1160
       ]
     },
     {
       "parameters": {
-        "width": 760,
-        "height": 300,
+        "width": 1000,
+        "height": 339,
         "color": 4,
         "content": "## Keep an EU AI Act inventory that survives an audit\n\nArt. 4 has required AI literacy since 2 February 2025, and since 2 August 2026 the transparency duties of Art. 50 and the Annex III high-risk duties apply. Both start with one question a company has to be able to answer: **which AI systems are we actually running?**\n\nThis workflow answers it continuously. Colleagues report a system through a form, an agent classifies it against the Act, a rule set checks the agent, and a monthly run makes sure nobody's entry quietly goes stale.\n\n**Setup:** OpenAI credentials, a Google Sheet with a header row matching the fields, and an SMTP account. Replace the two example addresses. Nothing else."
       },
@@ -544,14 +544,14 @@
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
-        -300,
-        -620
+        -400,
+        -800
       ]
     },
     {
       "parameters": {
-        "width": 400,
-        "height": 220,
+        "width": 500,
+        "height": 291,
         "color": 7,
         "content": "### 1 \u2014 Intake\n\nThe form is deliberately short: seven fields, plain wording, no legal vocabulary. People fill in what they know; the classification is not their job.\n\nThe Code node trims the input and builds one briefing block per system \u2014 a model reads field-per-line far more reliably than prose."
       },
@@ -560,14 +560,14 @@
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
-        -300,
-        -260
+        -400,
+        -420
       ]
     },
     {
       "parameters": {
-        "width": 560,
-        "height": 220,
+        "width": 660,
+        "height": 291,
         "color": 5,
         "content": "### 2 \u2014 Classification, then contradiction\n\nThe agent looks the Act up through the `ai_act_reference` tool instead of reciting it from memory, and returns a structured verdict.\n\n**The Code node afterwards may only raise the class, never lower it.** Language models under-classify: a recruiting tool described as \"pre-sorting applications\" sounds harmless and is Annex III employment. Whatever it corrects, and anything above limited risk, is flagged for a human."
       },
@@ -576,14 +576,14 @@
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
-        140,
-        -260
+        160,
+        -420
       ]
     },
     {
       "parameters": {
         "width": 700,
-        "height": 220,
+        "height": 243,
         "color": 3,
         "content": "### 3 \u2014 Four paths, not a yes/no\n\nEach class carries different duties, so each gets its own branch and its own text \u2014 the person who reported the system receives something actionable, not a label.\n\nProhibited and high-risk cases also alert the responsible manager. Everything lands in the same sheet: the inventory is the point."
       },
@@ -592,14 +592,14 @@
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
-        700,
-        -260
+        880,
+        -860
       ]
     },
     {
       "parameters": {
         "width": 1300,
-        "height": 240,
+        "height": 219,
         "color": 6,
         "content": "### 4 \u2014 The part most inventories skip\n\nA register built once and never touched is worthless on the day it matters. On the first of each month this branch reads the sheet, collects overdue reviews, upcoming ones and entries still waiting for a human decision, and mails a single summary \u2014 and stays silent when there is nothing to do, so the mail keeps meaning something.\n\nReview cadence: 90 days for high risk and prohibited, 180 days for the rest."
       },
@@ -608,8 +608,8 @@
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
-        -300,
-        600
+        -400,
+        620
       ]
     }
   ],

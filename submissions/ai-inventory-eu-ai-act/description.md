@@ -23,6 +23,24 @@ Fassung 2 (21 fachliche Nodes, zwei Trigger) setzt dort an, wo n8n Substanz erwa
   anstehende Wiedervorlagen sowie offene Entscheidungen und schickt eine Mail.
   Steht nichts an, bleibt er still.
 
+## Zweite Rückmeldung: Layout
+
+Fassung 2 wurde inhaltlich nicht mehr beanstandet, aber zurückgegeben, weil
+Notizzettel und Nodes sich auf dem Canvas überlappten — fünf Stellen, gemessen
+nachträglich mit demselben Prüfer, der jetzt im Generator sitzt.
+
+Zwei Ursachen, beide vermeidbar:
+
+1. **Notizhöhen geraten.** Eine zu knapp bemessene Notiz lässt den Text über den
+   Rand laufen und ihn über dem nächsten Node landen. `sticky()` leitet die Höhe
+   jetzt aus dem Text her; der übergebene Wert ist nur noch Untergrenze.
+2. **Die Switch-Pfade fächerten in das Notizband hinein.** Positionen sind jetzt
+   gestaffelt, und `pruefe_layout()` bricht den Build ab, sobald sich zwei Kästen
+   überschneiden — zwischen Node und Notiz zusätzlich mit 60 Einheiten Luft.
+
+Damit ist der Befund nicht mehr eine Frage der Aufmerksamkeit beim Hinsehen,
+sondern ein Gate, das kein Build passiert.
+
 ## Warum das Thema
 
 Seit dem 02.08.2026 gelten die Transparenzpflichten aus Art. 50 und die
